@@ -1,0 +1,82 @@
+name: mtpignite
+channels:
+  - pytorch
+  - gpytorch
+  - huggingface
+  - conda-forge
+  - defaults
+dependencies:
+  - python>3.8, <3.10
+  - pip
+  # --------- pytorch --------- #
+  # Bugfix: https://stackoverflow.com/a/70103458/10027894
+  - pytorch::pytorch<1.11.0
+  - pytorch::torchvision
+  - pytorch::torchtext
+  # -------- tensorflow --------- #
+  - tensorflow
+  # Bugfix: https://github.com/apple/tensorflow_macos/issues/163
+  - gast==0.3.3
+  # --------- hydra --------- #
+  - hydra-core==1.1.0
+  # hydra-ax-sweeper
+  # hydra-ray-launcher
+  # hydra-submitit-launcher
+  # --------- loggers --------- #
+  - wandb
+  # neptune-client
+  # mlflow
+  # comet-ml
+  # torch_tb_profiler
+  # --------- linters --------- #
+  - pre-commit # hooks for applying linters on commit
+  - black # code formatting
+  - isort # import sorting
+  - flake8 # code analysis
+  # --------- others --------- #
+  - python-dotenv # loading env variables from .env file
+  - rich # beautiful text formatting in terminal
+  - pytest # tests
+  - sh # for running bash commands in some tests
+  - scikit-learn # used in some callbacks
+  - jupyterlab # better jupyter notebooks
+  - pudb # debugger
+  - datasets # huggingface datasets
+  - pyarrow>=3.0.0 # huggingface datasets dependency
+  - ipywidgets # huggingface progressbar
+  - pydantic # maestro datastructures
+  - einops # easy tensor ops
+  - opt_einsum # einsum optimizer
+  - torchinfo # to show model structure
+  - pillow # Image processing
+  - loky # hydra-joblib-launcher dependency
+  - boltons # a lot of utilities, mostly useless
+  - portalocker # process syncing locks
+  - python-slugify # clean filenames
+  - backoff # GPU allocation backoff
+  - numpy>=1.21 # want nice numpy
+  # - black # code formatter
+  - isort
+  - flake8
+  - deprecated # make things die and spit warnings if used
+  - graphviz # render graphs
+  - pytorch::botorch # needed for utils.BufferDict
+  - matplotlib
+  # ---------- pip ----------- #
+  - pip:
+      - brunette # better code formatter
+      - tokenize_rt # ^ req. to format .ipynb
+      - torchviz # make backprop graphs for debugging
+      - hydra-colorlog
+      - hydra-optuna-sweeper
+      - pynvml # custom autoselect gpu
+      - hydra-joblib-launcher # hydra parallel sweeps launcher
+      - tabulate # torch.fx req.
+      - pymitter # event emitter for Provider util
+      - morecontext # context managers
+      - deepspeed # flops/latency measurement + other modules
+      - kink # dependency injection: https://github.com/kodemore/kink
+      - tfds-nightly
+      - pytorch-ignite
+      - tensorboardX
+      - crc32c

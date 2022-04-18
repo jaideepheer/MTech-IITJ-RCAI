@@ -1,0 +1,15 @@
+# @package _global_
+
+# specify here default configuration
+defaults:
+  - run_config@_here_
+  - default_train_config
+  - _self_
+  - datamodule: div2k/small
+  - trainer: sr3_diffusion
+  - model: sr3_diffusion/unet_model
+  - handlers: default
+
+device: cuda
+
+max_epochs: 50

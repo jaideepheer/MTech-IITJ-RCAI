@@ -1,0 +1,13 @@
+tensorboard:
+  logger:
+    _target_: ignite.contrib.handlers.tensorboard_logger.TensorboardLogger
+    log_dir: ./tb_logs
+  handlers:
+    train_output:
+      log_handler:
+        _target_: ignite.contrib.handlers.tensorboard_logger.OutputHandler
+        tag: train
+        metric_names: all
+      event:
+        _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+        every: 50

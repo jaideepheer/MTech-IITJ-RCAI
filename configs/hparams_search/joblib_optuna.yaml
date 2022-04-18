@@ -1,0 +1,85 @@
+# @package _global_
+
+# python run.py -m hparams_search=joblib_optuna experiment=sr3_diffusion/supernet_unet_v2
+
+defaults:
+  - override /hydra/launcher: joblib
+  - override /hydra/sweeper: optuna
+
+# choose metric which will be optimized by Optuna
+optimized_metric: "training/supernet/loss"
+
+# set logger tags
+logger:
+  wandb:
+    group: ${name}/${root_now:%Y-%m-%d}/${root_now:%H-%M-%S}
+    name: ${logger.wandb.group}/${hydra:job.num}
+
+trainer:
+  gpus:
+    _target_: src.utils.utils.auto_select_gpus
+    n: 1
+    freemem_ratio_above: 0.90
+    fill_mem_upto: 0.101
+  # strategy: null
+
+hydra:
+  # No. of parallel joblib jobs
+  launcher:
+    n_jobs: 2
+  
+  # here we define Optuna hyperparameter search
+  # it optimizes for value returned from function with @hydra.main decorator
+  # learn more here: https://hydra.cc/docs/next/plugins/optuna_sweeper
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    storage: null
+    study_name: ${name}
+    # Batch size for optuna sweeper
+    n_jobs: 2
+    # number of total experiments that will be executed
+    n_trials: 32
+
+    # 'minimize' or 'maximize' the objective
+    direction: minimize
+
+    # choose Optuna hyperparameter sampler
+    # learn more here: https://optuna.readthedocs.io/en/stable/reference/samplers.html
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: ${seed}
+      consider_prior: true
+      prior_weight: 1.0
+      consider_magic_clip: true
+      consider_endpoints: false
+      n_startup_trials: 10
+      n_ei_candidates: 24
+      multivariate: false
+      warn_independent_sampling: true
+
+    # define range of hyperparameters
+    search_space:
+      # Learning rates
+      model.child_denoiser.dropout:
+        type: categorical
+        choices: [0.002, 0]
+      model.optim_use_RAdam:
+        type: categorical
+        choices: [True, False]
+      model.metrics_scaling_factors.flops:
+        type: categorical
+        choices: [1e-20, 0]
+      model.metrics_scaling_factors.latency:
+        type: categorical
+        choices: [1e-10, 0]
+      # Trainer hparams
+      callbacks.temperature_annealing.decay_rate:
+        type: float
+        low: 1e-4
+        high: 1e-2
+        log: True
+      callbacks.temperature_annealing.min_temperature:
+        type: float
+        low: 1e-2
+        high: 1
+        log: True

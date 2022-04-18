@@ -1,0 +1,19 @@
+_target_: src.models.sr3_diffusion_model.SR3DiffusionSupernet
+conditional: True
+beta_variance_schedule:
+  _target_: torch.linspace
+  start: 1e-6
+  end: 1e-2
+  steps: 2_000
+loss_fn:
+  _target_: torch.nn.MSELoss
+  reduction: "mean"
+child_denoiser:
+  _target_: src.models.paper_modules.sr3_diffusion.unet_supernet.SupernetUNet
+  out_channels: 3
+  inner_channels: 32
+  channel_multipliers: [1, 2, 4, 8]
+  resnet_blocks_per_unet_layer: 3
+  dropout: 0.0
+  skip_connect_scaling: 0.70710678118 # 1/sqrt(2)
+  affine_conditional_modulation: False

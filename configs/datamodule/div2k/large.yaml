@@ -1,0 +1,11 @@
+# @package datamodule
+_target_: src.datamodules.div2k.Div2kDatamodule
+data_dir: ${data_dir}
+batch_size: 2
+subset: "bicubic_x8"
+patch_size: 512
+train_split: train[:-100]
+test_split: train[-100:]
+validation_split: validation
+lr_upscaling: bicubic
+in_memory: False

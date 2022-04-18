@@ -1,0 +1,13 @@
+# @package _global_
+
+# default running mode
+
+run_mode: default
+
+hydra:
+  # default output paths for all file logs
+  run:
+    dir: logs/runs/${root_now:%Y-%m-%d}/${root_now:%H-%M-%S}
+  sweep:
+    dir: logs/multiruns/${root_now:%Y-%m-%d}/${root_now:%H-%M-%S}
+    subdir: ${hydra.job.num}

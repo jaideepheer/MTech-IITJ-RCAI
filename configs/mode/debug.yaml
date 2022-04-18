@@ -1,0 +1,41 @@
+# @package _global_
+
+# run in debug mode with:
+# `python run.py mode=debug`
+
+defaults:
+  - override /hydra/job_logging: default
+
+# disable rich config printing, since it will be already printed by hydra when `verbose: True`
+print_config: False
+run_mode: debug
+
+hydra:
+  # sets level of all command line loggers to 'DEBUG'
+  verbose: True
+
+  job_logging:
+    filters:
+      exclusion_cons:
+        (): src.utils.logging.ExclusionFilter
+        names: ['urllib3.connectionpool', 'matplotlib', 'PIL.PngImagePlugin']
+      exclusion_file:
+        (): src.utils.logging.ExclusionFilter
+        names: ['urllib3.connectionpool', 'matplotlib', 'PIL.PngImagePlugin']
+    handlers:
+      console:
+        filters: [exclusion_cons]
+      file:
+        filters: [exclusion_file]
+
+  # https://hydra.cc/docs/tutorials/basic/running_your_app/logging/
+  # use this to set level of only chosen command line loggers to 'DEBUG'
+  # verbose: [src.train, src.utils.utils]
+
+  # sets output paths for all file logs to 'logs/debug/'
+  run:
+    dir: logs/debug/runs/${root_now:%Y-%m-%d}/${root_now:%H-%M-%S}
+  sweep:
+    dir: logs/debug/multiruns/${root_now:%Y-%m-%d}/${root_now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+

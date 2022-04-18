@@ -1,0 +1,4 @@
+defaults:
+  - div2k/large@_here_
+
+patch_size: 128
