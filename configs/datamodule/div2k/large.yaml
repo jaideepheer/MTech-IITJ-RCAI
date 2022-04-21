@@ -6,8 +6,8 @@ batch_size_test: 2
 batch_size_validation: 2
 subset: "unknown_x2"
 patch_size: 512
-train_split: train[:-100]
-test_split: train[-100:]
-validation_split: validation
+train_split: train
+test_split: validation[:50]
+validation_split: validation[50:]
 lr_upscaling: bicubic
 in_memory: False

@@ -21,6 +21,7 @@ from pathlib import Path
 
 from src.types.config import RunConfig, RunMode
 
+
 def seed_everything(seed: int):
     log = logging.getLogger(__name__)
     log.info(f"Global seed set to {seed}")
@@ -117,8 +118,8 @@ def auto_select_gpus(
             mult = {
                 "B": 1,
                 "KiB": 1024,
-                "MiB": 1024 ** 2,
-                "GiB": 1024 ** 3,
+                "MiB": 1024**2,
+                "GiB": 1024**3,
             }[p["unit"]]
             return {k: int(v * mult) for k, v in p.items() if k != "unit"}
 
@@ -223,7 +224,7 @@ def extras(config: RunConfig) -> None:
         warnings.filterwarnings("ignore")
 
     # verify experiment name is set when running in experiment mode
-    if config.run_mode == RunMode.experiment and not config.name is None:
+    if config.run_mode == RunMode.experiment and config.name is None:
         log.info(
             "Running in experiment mode without the experiment name specified! "
             "Use `python run.py mode=exp name=experiment_name`"

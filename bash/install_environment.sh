@@ -30,9 +30,9 @@ else
     echo "Creating environment $name..."
     if [ "$inp" = "y" ] || [ "$inp" = "Y" ] || [ -z "$inp" ]
     then
-        mamba env create -f environment.lock.yaml
+        mamba env create -f environment.lock.yaml -n $name
     else
-        mamba env create -f environment.yaml
+        mamba env create -f environment.yaml -n $name
         conda env export | head -n -1 > environment.lock.yaml
     fi
     conda activate $name

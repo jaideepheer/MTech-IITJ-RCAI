@@ -5,10 +5,15 @@ defaults:
   - run_config@_here_
   - default_train_config
   - _self_
-  - datamodule: div2k/small
+
+  - model: null
+  - engines: null
+  - datamodule: null
+
   - engines@engines.trainer: sr3_diffusion_trainer
   - engines@engines.validator: sr3_diffusion_infer
-  - model: sr3_diffusion/unet_attention
+  - override model: sr3_diffusion/unet_attention
+  - override datamodule: div2k/small
 
 device: cuda
 
