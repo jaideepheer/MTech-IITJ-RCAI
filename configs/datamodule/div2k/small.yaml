@@ -2,3 +2,4 @@ defaults:
   - div2k/large@_here_
 
 patch_size: 128
+validation_split: validation[:20]

@@ -1,8 +1,10 @@
 # @package datamodule
 _target_: src.datamodules.div2k.Div2kDatamodule
 data_dir: ${data_dir}
-batch_size: 2
-subset: "bicubic_x8"
+batch_size_train: 5
+batch_size_test: 2
+batch_size_validation: 2
+subset: "unknown_x2"
 patch_size: 512
 train_split: train[:-100]
 test_split: train[-100:]

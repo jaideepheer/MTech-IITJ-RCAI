@@ -2,8 +2,7 @@ from typing import Dict, Optional
 from collections import OrderedDict
 import torch.nn as nn
 import torch
-from frozendict import frozendict
-from src.models.torch_modules.mixins import (
+from src.torchmodules.mixins import (
     BasicMeasurableMixin,
     BasicMeasurableWrapper,
     MeasurableModuleMixin,
@@ -68,17 +67,12 @@ class MeasurableSequential(BasicMeasurableMixin, nn.Sequential):
         return super().add_module(name, module)
 
     def forward_measurements(
-        self, measurements: frozendict[str, torch.Tensor]
+        self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
-        rt = frozendict(measurements)
+        rt = Dict(measurements)
         for m in self.seqmodules:
             rt = m.forward_measurements(rt)
         return rt
-
-    def _to_tuple(self, x):
-        if not isinstance(x, (list, tuple)):
-            x = (x,)
-        return x
 
     def forward(self, x, **kwargs):
         if self.ignore_forward_kwargs is True:
@@ -94,6 +88,7 @@ class MeasurableSkipConnect(MeasurableSequential):
         *_,
         skip_connect_measurements: bool = True,
         skip_connect_scaling: float = 1.0,
+        skip_connect_concat_dim: int = None,
         **kwargs,
     ):
         """
@@ -111,9 +106,10 @@ class MeasurableSkipConnect(MeasurableSequential):
         super().__init__(*_, **kwargs)
         self.skip_connect_measurements = skip_connect_measurements
         self.skip_connect_scaling = skip_connect_scaling
+        self.skip_connect_concat_dim = skip_connect_concat_dim
 
     def forward_measurements(
-        self, measurements: frozendict[str, torch.Tensor]
+        self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         rt = super().forward_measurements(measurements)
         if self.skip_connect_measurements is True:
@@ -126,7 +122,13 @@ class MeasurableSkipConnect(MeasurableSequential):
 
     def forward(self, x, **kw):
         rt = super().forward(x, **kw)
-        rt = rt + (x * self.skip_connect_scaling)
+        if self.skip_connect_concat_dim is None:
+            rt = rt + (x * self.skip_connect_scaling)
+        else:
+            rt = torch.cat(
+                [rt, x * self.skip_connect_scaling],
+                dim=self.skip_connect_concat_dim,
+            )
         return rt
 
 
@@ -134,43 +136,41 @@ class UNetLayer(BasicMeasurableMixin):
     def __init__(
         self,
         *_,
-        pre_skip: nn.Module,
-        downscale: nn.Module,
-        child: nn.Module,
-        upscale: nn.Module,
-        post_skip: nn.Module,
-        skip_connect_scaling: float = 1.0 / (2 ** 0.5),
+        down: nn.Module,
+        subnet: nn.Module,
+        up: nn.Module,
+        skip_connect_scaling: float = 1.0 / (2**0.5),
         skip_connect_measurements: bool = True,
+        skip_connect_concat_dim: int = -3,
+        ignore_forward_kwargs: bool = False,
     ):
         super().__init__()
+        self.ignore_forward_kwargs = ignore_forward_kwargs
         self.module = MeasurableSequential(
             OrderedDict(
                 [
-                    ("unet_layer_pre", pre_skip),
+                    ("unet_layer_down", down),
                     (
-                        "unet_layer_skip",
+                        "unet_layer_child",
                         MeasurableSkipConnect(
-                            OrderedDict(
-                                [
-                                    ("unet_layer_down", downscale),
-                                    ("unet_layer_child", child),
-                                    ("unet_layer_up", upscale),
-                                ]
-                            ),
+                            subnet,
                             skip_connect_scaling=skip_connect_scaling,
                             skip_connect_measurements=skip_connect_measurements,
+                            skip_connect_concat_dim=skip_connect_concat_dim,
                         ),
                     ),
-                    ("unet_layer_post", post_skip),
+                    ("unet_layer_up", up),
                 ]
             )
         )
 
-    def forward(self, *x, **kwargs):
-        return self.module(*x, **kwargs)
+    def forward(self, x, **kwargs):
+        if self.ignore_forward_kwargs:
+            kwargs = {}
+        return self.module(x, **kwargs)
 
     def forward_measurements(
-        self, measurements: frozendict[str, torch.Tensor]
+        self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         return self.module.forward_measurements(measurements)
 

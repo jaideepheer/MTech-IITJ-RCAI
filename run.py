@@ -9,6 +9,8 @@ import gc
 import logging
 import faulthandler
 from kink import di
+import signal
+import sys
 
 
 # Catch SIGSEV error stack trace
@@ -18,6 +20,14 @@ faulthandler.enable()
 # load environment variables from `.env` file if it exists
 # recursively searches for `.env` in all folders starting from work dir
 dotenv.load_dotenv(override=True)
+
+
+def elegant_shutdown(*_, **__):
+    logging.info("Shutting down.")
+    # Clear memory and free torch stuff
+    gc.collect()
+    torch.cuda.empty_cache()
+    sys.exit(0)
 
 
 @hydra.main(config_path="configs", config_name="train_config.yaml")
@@ -39,7 +49,7 @@ def main(config: RunConfig):
 
     # Pretty print config using Rich library
     if config.print_config:
-        utils.print_config(config, resolve=True)
+        utils.print_config(config, resolve=False)
 
     # Train model
     try:
@@ -48,9 +58,7 @@ def main(config: RunConfig):
         logging.exception(e)
         raise
 
-    # Clear memory and free torch stuff
-    gc.collect()
-    torch.cuda.empty_cache()
+    elegant_shutdown()
 
     return score
 
@@ -73,10 +81,12 @@ def _register_hacks():
     # dependency kink injector resolver
     OmegaConf.register_new_resolver(
         "di",
-        lambda pat: OmegaConf.create({
-            "_target_": "kink.di.__getitem__",
-            "_args_": [pat],
-        }),
+        lambda pat: OmegaConf.create(
+            {
+                "_target_": "kink.di.__getitem__",
+                "_args_": [pat],
+            }
+        ),
         use_cache=False,
         replace=True,
     )
@@ -93,4 +103,6 @@ def _register_hacks():
 if __name__ == "__main__":
     # hydra hacks applied before hydra
     _register_hacks()
+    # register elegant shutdown hooks
+    signal.signal(signal.SIGINT, elegant_shutdown)
     main()

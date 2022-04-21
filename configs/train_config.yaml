@@ -6,10 +6,55 @@ defaults:
   - default_train_config
   - _self_
   - datamodule: div2k/small
-  - trainer: sr3_diffusion
-  - model: sr3_diffusion/unet_model
-  - handlers: default
+  - engines@engines.trainer: sr3_diffusion_trainer
+  - engines@engines.validator: sr3_diffusion_infer
+  - model: sr3_diffusion/unet_attention
 
 device: cuda
 
-max_epochs: 50
+engines:
+  trainer:
+    max_epochs: 50
+    handlers:
+      # handler to init. model weights
+      weight_init:
+        handler:
+          _target_: src.handlers.weight_init.ModelWeightHandler
+        kwargs:
+          model: ${di:model}
+          kind: orthogonal
+      # add handler to run validation engine
+      train_validator:
+        handler: ${eval:"lambda:di['engines.validator'].run(di['datamodule'].validation_dataloader())"}
+        event:
+          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 5
+      # add handler to log train images
+      log_images:
+        handler:
+          _target_: src.handlers.log_output_images.LogOutputImages
+          tag: train_images
+          metric_names: ['x_original', 'y_original', 'y_noisy']
+          n_images: 4
+          orientation: vertical
+        kwargs:
+          logger: ${di:"loggers.tensorboard"}
+          trigger_event:
+            _target_: ignite.engine.events.Events.EPOCH_STARTED
+            every: 5
+  validator:
+    run_engine: False
+    max_epochs: 1
+    handlers:
+      # add handler to log validation images
+      log_images:
+        handler:
+          _target_: src.handlers.log_output_images.LogOutputImages
+          tag: validation_images
+          metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+          n_images: 4
+          orientation: vertical
+        kwargs:
+          logger: ${di:"loggers.tensorboard"}
+          global_step_engine: ${di:"engines.trainer"}
+

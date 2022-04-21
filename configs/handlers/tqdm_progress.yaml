@@ -1,0 +1,5 @@
+tqdm_progress_bar:
+  handler:
+    _target_: ignite.contrib.handlers.tqdm_logger.ProgressBar
+  kwargs:
+    metric_names: all

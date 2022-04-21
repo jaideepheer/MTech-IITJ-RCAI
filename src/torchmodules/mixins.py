@@ -5,11 +5,9 @@ import torch
 import torch.nn as nn
 from botorch.utils.torch import BufferDict
 from deepspeed.profiling.flops_profiler import FlopsProfiler
-from frozendict import frozendict
 from morecontext import attrset
-from src.utils.utils import get_logger
 
-LOG = get_logger(__name__)
+LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
@@ -211,7 +209,7 @@ class MeasurableModuleMixin(nn.Module):
         return {k: self.__measurements_cache[k] for k in metrics}
 
     def forward_measurements(
-        self, measurements: frozendict[str, torch.Tensor]
+        self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         """
         Given a dict of str and torch.Tensor from previous module measurements, returns this module's measurements merged with the previous ones'.
@@ -221,7 +219,7 @@ class MeasurableModuleMixin(nn.Module):
 
         Parameters
         ----------
-        measurements: frozendict[str, torch.Tensor]
+        measurements: Dict[str, torch.Tensor]
             Immutable input measurements dict.
 
         Returns

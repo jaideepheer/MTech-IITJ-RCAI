@@ -227,7 +227,7 @@ class BigGANResnetBlockDown(nn.Module):
         return self.post(x) + self.skip(x_in)
 
 
-class UNetWithNoiseLevel(nn.Module):
+class UNetWithSkip(nn.Module):
     """
     The UNet model used in SR3.
     See: Fig. A.1 in https://arxiv.org/abs/2104.07636v2

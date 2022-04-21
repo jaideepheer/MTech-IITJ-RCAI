@@ -1,17 +1,16 @@
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 from ignite.engine.engine import Engine
-from ignite.engine.events import EventEnum
+from ignite.engine.events import Events
 import torch.nn as nn
 import torch
 
 from src.utils.utils import get_module_device
 
 
-class SR3DiffusionEngine(Engine):
+class SR3DiffusionTrainingEngine(Engine):
     def __init__(
         self,
         *_,
-        device: str = "cpu",
         denoise_model: nn.Module,
         optimizer: torch.optim.Optimizer,
         loss_fn: nn.Module = nn.MSELoss(reduction="sum"),
@@ -49,35 +48,41 @@ class SR3DiffusionEngine(Engine):
         self.loss_fn = loss_fn
         self.conditional = conditional
         self.independent_train_t_sample = independent_train_t_sample
-        self.set_variance_schedule(torch.FloatTensor(beta_variance_schedule))
+        self.beta_variance_schedule = beta_variance_schedule
         super().__init__(self.train_step)
+        self.add_event_handler(Events.EPOCH_STARTED, self.set_variance_schedule)
 
     @torch.no_grad()
-    def set_variance_schedule(self, schedule: torch.FloatTensor):
+    def set_variance_schedule(self):
         device = get_module_device(self.denoise_model)
-        schedule = schedule.to(device=device)
+        schedule = torch.FloatTensor(self.beta_variance_schedule).to(device=device)
+        # calc. values
+        v = {}
+        v["beta"] = schedule
+        v["alpha"] = 1.0 - v["beta"]
+        v["gamma"] = torch.cumprod(v["alpha"], dim=0)
+        v["gamma_prev"] = torch.cat([torch.ones((1,), device=device), v["gamma"]])[:-1]
+        v["root_one_minus_gamma"] = (1.0 - v["gamma"]).sqrt()
+        v["inv_root_gamma"] = (1.0 / v["gamma"]).sqrt()
+        v["q_posterior_mean_coef_1"] = (v["gamma_prev"].sqrt() * v["beta"]) / (
+            1.0 - v["gamma"]
+        )
+        v["q_posterior_mean_coef_2"] = (v["alpha"].sqrt() * (1.0 - v["gamma_prev"])) / (
+            1.0 - v["gamma"]
+        )
+        # log calculation clipped because the posterior variance is 0 at the beginning of the diffusion chain
+        # See: https://github.com/Janspiry/Image-Super-Resolution-via-Iterative-Refinement/blob/b03c8eff4140e29e30bc4b8ab1fa75dfba630bc6/model/sr3_modules/diffusion.py#L133
+        v["q_posterior_stddev_coef"] = torch.clamp(
+            (1.0 - v["gamma_prev"]) * v["beta"] / (1.0 - v["gamma"]),
+            max=1e-20,
+        ).sqrt()
         try:
-            self.denoise_model.beta = schedule
-            self.denoise_model.alpha = 1.0 - self.denoise_model.beta
-            self.denoise_model.gamma = torch.cumprod(self.denoise_model.alpha, dim=0)
-            self.denoise_model.gamma_prev = torch.cat(
-                [
-                    torch.ones((1,), device=device),
-                    self.denoise_model.gamma,
-                ]
-            )
-        except Exception:
             # register buffers
-            self.denoise_model.register_buffer("beta", schedule)
-            # add beta derived buffers
-            self.denoise_model.register_buffer("alpha", 1.0 - self.denoise_model.beta)
-            self.denoise_model.register_buffer(
-                "gamma", torch.cumprod(self.denoise_model.alpha, dim=0)
-            )
-            # gamma right shifted by appending 1.0 to the left
-            self.denoise_model.register_buffer(
-                "gamma_prev", torch.cat([torch.ones((1,)), self.denoise_model.gamma])
-            )
+            for k, v in v.items():
+                self.denoise_model.register_buffer(k, v)
+        except Exception:
+            for k, v in v.items():
+                setattr(self.denoise_model, k, v)
 
     @property
     def T(self) -> int:
@@ -137,39 +142,6 @@ class SR3DiffusionEngine(Engine):
             noisy = torch.cat([condition, noisy], dim=-3)
         rt = self.denoise_model(noisy, gamma_noise_level)
         return rt
-
-    @torch.no_grad()
-    def p_sample(self, t: int, y: torch.Tensor, condition_x: torch.Tensor):
-        """
-        Given y_t and conditional tensor x, this returns p(y_{t-1} | y_t, x).
-
-        Parameters
-        ---
-        t: int
-            The current time-step for all elements in this batch.
-        y: torch.Tensor
-            The noisy tensor to denoise. Shape must be batched (b, ...).
-        condition_x: torch.Tensor
-            The conditioning tensor `x`.
-        """
-        alpha, beta, gamma = (
-            self.denoise_model.alpha[t],
-            self.denoise_model.beta[t],
-            self.denoise_model.gamma[t],
-        )
-        # apply denoise model to predict noise
-        y_pred = self.predict_noise(noisy=y, t=t, condition=condition_x)
-        # calc. denoise mean
-        # See: Eq. 11 in https://arxiv.org/abs/2104.07636v2
-        mean = (y - (beta / (1.0 - gamma).sqrt()) * y_pred) / alpha.sqrt()
-        # eps for last inference step
-        if t == 0:
-            return mean
-        # sample normal noise
-        eps = torch.randn_like(mean)
-        # calc. y_{t-1}
-        y_prev = mean + beta.sqrt() * eps
-        return y_prev
 
     def sample_gamma(self, t: torch.Tensor) -> torch.Tensor:
         """
@@ -233,12 +205,24 @@ class SR3DiffusionEngine(Engine):
         noisy = (gamma_samples.sqrt() * x0) + (eps_noise * (1.0 - gamma_samples).sqrt())
         return noisy, gamma_samples.view(orig_shape)
 
+    def _de_normalize(self, batch_meta: Dict[str, torch.Tensor]):
+        # ensure all data is tensor
+        device = get_module_device(self.denoise_model)
+        batch = {k: torch.as_tensor(v, device=device) for k, v in batch_meta.items()}
+        # de-normalize
+        img = torch.multiply(batch["image"], batch["stddev"])
+        img += batch["mean"]
+        return img
+
     def train_step(self, engine: Engine, batch: Dict[str, torch.Tensor]):
         # prep data and opti
         self.denoise_model.train()
         device = get_module_device(self.denoise_model)
         self.optimizer.zero_grad(set_to_none=True)
-        x, y = [torch.as_tensor(i, device=device) for i in [batch["lr"], batch["hr"]]]
+        x, y = [
+            torch.as_tensor(i, device=device)
+            for i in [batch["lr"]["image"], batch["hr"]["image"]]
+        ]
         # random t steps, up to T
         t = torch.randint(
             low=0,
@@ -261,67 +245,120 @@ class SR3DiffusionEngine(Engine):
         # log
         return {
             "loss": loss.item(),
-            "y_original": y.detach(),
-            "y_noisy": y_noisy.detach(),
+            "x_original": self._de_normalize(
+                {
+                    **batch["lr"],
+                    "image": x,
+                }
+            ).detach(),
+            "y_original": self._de_normalize(
+                {
+                    **batch["hr"],
+                    "image": y,
+                }
+            ).detach(),
+            "y_noisy": self._de_normalize(
+                {
+                    **batch["hr"],
+                    "image": y_noisy,
+                }
+            ).detach(),
             "gamma_noise_level": gamma_samples.detach(),
-            "pred_noise": y_noise_pred.detach(),
         }
 
-    # def __progbar_generator(self, iterable, description: str, total: int):
-    #     if self.trainer is not None:
-    #         bar = self.trainer.progress_bar_callback
-    #         if isinstance(bar, RichProgressBar) and bar.progress is not None:
-    #             prog = bar.progress
-    #             task = prog.add_task(description, total=total)
 
-    #             def _gen():
-    #                 for i in iterable:
-    #                     yield i
-    #                     prog.update(task, advance=1)
-    #                 prog.remove_task(task)
+class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
+    def __init__(
+        self,
+        *_,
+        denoise_model: nn.Module,
+        conditional: bool = True,
+        beta_variance_schedule: List[float],
+        steps_to_record: List[int] = [],
+        clip_after_denoise: bool = True,
+    ):
+        self.denoise_model = denoise_model
+        self.conditional = conditional
+        self.beta_variance_schedule = beta_variance_schedule
+        self.steps_to_record = steps_to_record
+        self.clamp_after_denoise = clip_after_denoise
+        Engine.__init__(self, self.infer)
+        self.add_event_handler(Events.EPOCH_STARTED, self.set_variance_schedule)
 
-    #             return _gen()
-    #     return track(iterable, description=description, total=total)
+    @torch.no_grad()
+    def infer(self, engine: Engine, batch: Dict[str, torch.Tensor]):
+        """
+        Performs iterative generation using the trained denoiser.
 
-    # def forward(self, x: torch.Tensor, t: Iterable[int] = (0,), progbar: bool = True):
-    #     """
-    #     Performs iterative generation using the trained denoiser.
+        Parameters
+        ---
+        x: batch: Dict[str, torch.Tensor]
+            Batch containing a key 'lr' for the low resolution tensor.
+        t: Iterable[int] = (0,)
+            A list of int specifying the time-steps to include in the returned tensor.
+            t=0 is the the reconstruction of original image y_0.
+            If len(t) == 1, then the returned tensor has shape (b, ...)
 
-    #     Parameters
-    #     ---
-    #     x: torch.Tensor
-    #         Conditional tensor for conditional generation.
-    #     t: Iterable[int] = (0,)
-    #         A list of int specifying the time-steps to include in the returned tensor.
-    #         t=0 is the the reconstruction of original image y_0.
-    #         If len(t) == 1, then the returned tensor has shape (b, ...)
-    #     progbar: bool = False
-    #         If True, displays a progress bar for steps completed.
+        Returns
+        ---
+        Dict[int, torch.Tensor]: A dict with int keys for each timestep and tensor values for the denoised image at that timestep.
+        """
+        self.denoise_model.eval()
+        device = get_module_device(self.denoise_model)
+        x = torch.as_tensor(batch["lr"]["image"], device=device)
+        x_mean = torch.as_tensor(batch["lr"]["mean"], device=device)
+        x_stddev = torch.as_tensor(batch["lr"]["stddev"], device=device)
+        ret = {"lr": self._de_normalize(batch["lr"])}
+        if "hr" in batch:
+            ret["hr"] = self._de_normalize(batch["hr"])
+        # start with random image
+        img = torch.randn_like(x)
+        # iteratively refine image
+        steps = list(reversed(range(0, self.T)))
+        for i in steps:
+            img = self.p_sample(t=i, y=img, condition_x=x)
+            if i in self.steps_to_record:
+                # de-normalize
+                img = self._de_normalize(
+                    {
+                        "image": img,
+                        "mean": x_mean,
+                        "stddev": x_stddev,
+                    }
+                ).detach()
+                ret[i] = img
+        return ret
 
-    #     Returns
-    #     ---
-    #     torch.Tensor: A tensor of shape (len(t), b, ...) or (b, ...) containing iteratively denoised data.
-    #     """
-    #     ret = []
-    #     # start with random image
-    #     img = torch.randn_like(x)
-    #     # iteratively refine image
-    #     steps = list(reversed(range(0, self.T)))
-    #     if progbar is True:
-    #         steps = self.__progbar_generator(
-    #             steps,
-    #             description=f"Forward diffusion for tensor {tuple(x.shape)}",
-    #             total=self.T,
-    #         )
-    #     for i in steps:
-    #         img = self.p_sample(t=i, y=img, condition_x=x)
-    #         if i in t:
-    #             ret.append(img.detach())
-    #     # return refined result
-    #     if len(ret) > 1:
-    #         return torch.stack(ret)
-    #     else:
-    #         return ret[0]
+    @torch.no_grad()
+    def p_sample(self, t: int, y: torch.Tensor, condition_x: torch.Tensor):
+        """
+        Given y_t and conditional tensor x, this returns p(y_{t-1} | y_t, x).
 
-    # def init_params(self, x: torch.Tensor):
-    #     return self.p_sample(t=self.T - 1, y=torch.randn_like(x), condition_x=x)
+        Parameters
+        ---
+        t: int
+            The current time-step for all elements in this batch.
+        y: torch.Tensor
+            The noisy tensor to denoise. Shape must be batched (b, ...).
+        condition_x: torch.Tensor
+            The conditioning tensor `x`.
+        """
+        # apply denoise model to predict noise
+        y_pred = self.predict_noise(noisy=y, t=t, condition=condition_x)
+        # clamp denoised image
+        if self.clamp_after_denoise:
+            y_pred = torch.clamp(y_pred, -1.0, 1.0)
+        # calc. denoise mean
+        # See: Eq. 11 in https://arxiv.org/abs/2104.07636v2
+        mean = (
+            y - self.denoise_model.root_one_minus_gamma[t] * y_pred
+        ) / self.denoise_model.inv_root_gamma[t]
+        # eps for last inference step
+        if t == 0:
+            return mean
+        # sample normal noise
+        eps = torch.randn_like(mean)
+        # calc variance
+        stddev = self.denoise_model.q_posterior_stddev_coef[t]
+        # calc. y_{t-1}
+        return mean + stddev * eps

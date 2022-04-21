@@ -1,0 +1,22 @@
+
+defaults:
+  - /handlers: default_train
+
+run_engine: True
+engine:
+  _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
+  denoise_model: ${di:model}
+  optimizer:
+    _target_: torch.optim.Adam
+    lr: 3e-6
+    _args_:
+      - ${eval:"di['model'].parameters()"}
+  conditional: True
+  beta_variance_schedule:
+    _target_: torch.linspace
+    start: 1e-6
+    end: 1e-2
+    steps: 2_000
+  loss_fn:
+    _target_: torch.nn.L1Loss
+    reduction: "mean"

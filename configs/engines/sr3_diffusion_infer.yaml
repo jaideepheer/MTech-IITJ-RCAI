@@ -1,0 +1,16 @@
+
+defaults:
+  - /handlers: tqdm_progress
+
+run_engine: False
+max_epochs: 1
+engine:
+  _target_: src.engines.sr3_diffusion.SR3DiffusionInferenceEngine
+  denoise_model: ${di:model}
+  conditional: True
+  steps_to_record: [1999, 1500, 1000, 500, 0]
+  beta_variance_schedule:
+    _target_: torch.linspace
+    start: 1e-6
+    end: 1e-2
+    steps: 2_000

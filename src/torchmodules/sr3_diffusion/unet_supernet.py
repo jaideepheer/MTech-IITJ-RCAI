@@ -352,18 +352,18 @@ class SupernetUNet(BasicMeasurableMixin, nn.Module):
 
             unet = UNetLayer(
                 pre_skip=pre,
-                downscale=_make_block(
+                down=_make_block(
                     layer_idx,
                     SupernetBigGANResnetBlockDown,
                     apply_scaling=True,
                 ),
-                child=(
+                subnet=(
                     # last UNet layer has a simple conv as the child
                     _make_layer(layer_idx + 1)
                     if layer_idx != n_layers - 1
                     else _makeSupernetConv(inner_channels * channel_multipliers[-1])
                 ),
-                upscale=_make_block(
+                up=_make_block(
                     # upscaling keeps channels same and lets post handle channel shrinking
                     (
                         layer_idx

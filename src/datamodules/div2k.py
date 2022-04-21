@@ -4,7 +4,6 @@ import torch
 from src.datamodules.interface import DatamoduleInterface
 import tensorflow_datasets as tfds
 import tensorflow as tf
-import numpy as np
 import random
 
 Div2kSubset_T = Literal[
@@ -29,7 +28,9 @@ class Div2kDatamodule(DatamoduleInterface):
         self,
         *_,
         data_dir: str = "data",
-        batch_size: int,
+        batch_size_train: int,
+        batch_size_validation: int,
+        batch_size_test: int,
         subset: Div2kSubset_T,
         patch_size: int,
         # this is sent to tfds.load and can use tfds split format, eg. train[80%]
@@ -42,7 +43,9 @@ class Div2kDatamodule(DatamoduleInterface):
         super().__init__()
         self.patch_size = patch_size
         self.data_dir = data_dir
-        self.batch_size = batch_size
+        self.batch_size_train = batch_size_train
+        self.batch_size_test = batch_size_test
+        self.batch_size_validation = batch_size_validation
         self.subset = subset
         self.splits = {
             "train": train_split,
@@ -64,40 +67,64 @@ class Div2kDatamodule(DatamoduleInterface):
         Called to download/extract data.
         """
         self.datasets: Dict[str, tf.data.Dataset] = {}
-        self.seed = random.random()
+
+        def _per_image_norm_tensor(image: tf.Tensor):
+            image = tf.cast(image, dtype=tf.float32)
+            num_pixels = tf.reduce_prod(tf.shape(image)[-3:])
+            image_mean = tf.reduce_mean(image, axis=[-1, -2, -3], keepdims=True)
+            # Apply a minimum normalization that protects us against uniform images.
+            stddev = tf.math.reduce_std(image, axis=[-1, -2, -3], keepdims=True)
+            min_stddev = tf.math.rsqrt(tf.cast(num_pixels, tf.float32))
+            adjusted_stddev = tf.maximum(stddev, min_stddev)
+            # apply normalization
+            image -= image_mean
+            image = tf.divide(image, adjusted_stddev)
+            return {
+                "image": image,
+                # / 255.0 is done to ensure de-normalisation keeps values in [0,1]
+                "mean": image_mean / 255.0,
+                "stddev": stddev / 255.0,
+            }
 
         def _map_fn(dt):
             hr = dt["hr"]
             lr = dt["lr"]
-            # normalize images
-            hr = tf.image.per_image_standardization(hr)
-            lr = tf.image.per_image_standardization(lr)
+            # do upscaling
             if self.lr_upscaling is not None:
                 lr = tf.image.resize(lr, tf.shape(hr)[-3:-1], method=self.lr_upscaling)
+            # normalize images
+            lr_meta = _per_image_norm_tensor(lr)
+            hr_meta = _per_image_norm_tensor(hr)
+            lr = lr_meta["image"]
+            hr = hr_meta["image"]
             # change to nchw format
-            lr = tf.transpose(lr, [0, 3, 1, 2])
-            hr = tf.transpose(hr, [0, 3, 1, 2])
+            lr = tf.transpose(lr, [2, 0, 1])
+            hr = tf.transpose(hr, [2, 0, 1])
             return {
-                "hr": hr,
-                "lr": lr,
+                "hr": {
+                    **hr_meta,
+                    "image": hr,
+                },
+                "lr": {
+                    **lr_meta,
+                    "image": lr,
+                },
             }
 
         def _post_cache_map(dt):
-            dt = {
-                k: tf.image.random_crop(
-                    v,
-                    size=(self.batch_size, 3, self.patch_size, self.patch_size),
-                    seed=self.seed,
+            seed = tf.random.get_global_generator().make_seeds(count=1)[:, 0]
+            for k in ["lr", "hr"]:
+                dt[k]["image"] = tf.image.stateless_random_crop(
+                    dt[k]["image"],
+                    size=(3, self.patch_size, self.patch_size),
+                    seed=seed,
                 )
-                for k, v in dt.items()
-            }
             return dt
 
         for mode in ["train", "test", "validation"]:
             ds = tfds.load(
                 f"div2k/{self.subset}",
                 split=self.splits[mode],
-                batch_size=self.batch_size,
                 data_dir=self.data_dir,
             ).map(
                 _map_fn,
@@ -110,10 +137,8 @@ class Div2kDatamodule(DatamoduleInterface):
                 _post_cache_map,
                 num_parallel_calls=tf.data.AUTOTUNE,
             )
-            # prefetch
-            ds = ds.prefetch(tf.data.AUTOTUNE)
-            # auto prefetch next batch
-            self.datasets[mode] = tfds.as_numpy(ds)
+            # save mapped dataset
+            self.datasets[mode] = ds
 
     def setup_splits(self):
         """
@@ -125,16 +150,37 @@ class Div2kDatamodule(DatamoduleInterface):
         """
         Returns training dataloader.
         """
-        return self.datasets["train"]
+        return tfds.as_numpy(
+            self.datasets["train"]
+            .batch(
+                self.batch_size_train,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
+            .prefetch(tf.data.AUTOTUNE)
+        )
 
     def validation_dataloader(self):
         """
         Returns validation dataloader.
         """
-        return self.datasets["validation"]
+        return tfds.as_numpy(
+            self.datasets["validation"]
+            .batch(
+                self.batch_size_validation,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
+            .prefetch(tf.data.AUTOTUNE)
+        )
 
     def test_dataloader(self):
         """
         Returns test dataloader.
         """
-        return self.datasets["test"]
+        return tfds.as_numpy(
+            self.datasets["test"]
+            .batch(
+                self.batch_size_test,
+                num_parallel_calls=tf.data.AUTOTUNE,
+            )
+            .prefetch(tf.data.AUTOTUNE)
+        )

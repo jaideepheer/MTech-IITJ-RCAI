@@ -14,6 +14,8 @@ class RunMode(Enum):
 class IgniteLoggerHandler:
     event: Any
     log_handler: Any
+    # names of engines to attach to, if not provided, attaches to every engine
+    engines: Optional[List[str]]
 
 
 @dataclass
@@ -52,18 +54,27 @@ class IgniteHandler:
 
 
 @dataclass
+class IgniteEngine:
+    # ignite engine instance
+    engine: Any
+    # event handlers for this engine
+    handlers: Optional[Dict[str, Any]]
+    # to run
+    run_engine: bool
+    # max epochs for this engine
+    max_epochs: int
+
+
+@dataclass
 class TrainConfig(RunConfig):
     # the device to train on
     device: Optional[str]
-    # datamodule
-    datamodule: Any
-    # trainer
-    trainer: Any
-    # event handlers
-    handlers: Optional[Dict[str, Any]]
     # model
     model: Any
-    max_epochs: int
+    # datamodule
+    datamodule: Any
+    # engines
+    engines: Dict[str, IgniteEngine]
 
 
 cs = ConfigStore.instance()
