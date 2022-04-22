@@ -84,6 +84,7 @@ def auto_select_gpus(
     backoff_waitgen=None,
     max_time=None,
     max_tries=None,
+    as_str: bool = True,
 ):
     """
     Retruns a list of cuda device idx which have used memory % below given threshold.
@@ -201,6 +202,8 @@ def auto_select_gpus(
             )
         rt, _, _ = zip(*rt)
         rt = list(rt)
+        if as_str:
+            rt = [f'cuda:{i}' for i in rt]
     return rt
 
 

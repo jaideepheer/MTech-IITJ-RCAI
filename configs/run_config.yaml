@@ -1,13 +1,10 @@
 # @package _global_
 
 defaults:
-  - _self_
   - default_run_config
+  - _self_
   - mode: default
   - loggers: tensorboard
-
-  - experiment: null
-  - hparams_search: null
 
   # enable color logging
   - override hydra/hydra_logging: colorlog

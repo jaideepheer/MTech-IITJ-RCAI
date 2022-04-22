@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 from hydra.core.config_store import ConfigStore
+from omegaconf import DictConfig
+import torch.nn as nn
+from src.datamodules.interface import DatamoduleInterface
 
 
 class RunMode(Enum):
@@ -68,7 +71,7 @@ class IgniteEngine:
 @dataclass
 class TrainConfig(RunConfig):
     # the device to train on
-    device: Optional[str]
+    device: Optional[Any]
     # model
     model: Any
     # datamodule

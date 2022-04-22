@@ -12,6 +12,7 @@ import hydra
 from kink import di
 from ignite.engine.engine import Engine
 import torch.nn as nn
+import tensorflow as tf
 
 from src.utils.utils import seed_everything
 
@@ -36,6 +37,10 @@ def train(config: TrainConfig) -> Optional[float]:
     Returns:
         Optional[float]: Metric score for hyperparameter optimization.
     """
+    # disable tf GPU usage
+    # See: https://datascience.stackexchange.com/a/76039/134896
+    tf.config.set_visible_devices([], 'GPU')
+
     # Set seed for random number generators in pytorch, numpy and python.random
     if config.seed is not None:
         seed_everything(config.seed)
@@ -52,7 +57,10 @@ def train(config: TrainConfig) -> Optional[float]:
     log.info(f"Instantiating model <{config.model._target_}>")
     model: nn.Module = try_instantiate(config.model)
     if config.device is not None:
-        model = model.to(device=config.device)
+        log.info(f"Instantiating device <{config.device}>")
+        device = try_instantiate(config.device)
+        log.info(f"Selected device: {device}")
+        model = model.to(device=device)
     di["model"] = model
 
     # Instantiate engines

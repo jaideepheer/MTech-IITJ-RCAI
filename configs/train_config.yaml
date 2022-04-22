@@ -6,14 +6,15 @@ defaults:
   - default_train_config
   - _self_
 
-  - model: null
+  - model: sr3_diffusion/unet_attention
   - engines: null
-  - datamodule: null
+  - datamodule: div2k/small
 
   - engines@engines.trainer: sr3_diffusion_trainer
   - engines@engines.validator: sr3_diffusion_infer
-  - override model: sr3_diffusion/unet_attention
-  - override datamodule: div2k/small
+
+  - experiment: null
+  - hparams_search: null
 
 device: cuda
 
