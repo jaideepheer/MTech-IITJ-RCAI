@@ -8,9 +8,9 @@ from src.datamodules.interface import DatamoduleInterface
 
 
 class RunMode(Enum):
-    default = auto
-    experiment = auto
-    debug = auto
+    default = "default"
+    experiment = "experiment"
+    debug = "debug"
 
 
 @dataclass

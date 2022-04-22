@@ -4,10 +4,9 @@
 
 # specify here default configuration
 defaults:
-  - /default_train_config
-  - /engines: null
-  - /datamodule: div2k/small
-  - /device: null
+  - override /datamodule: div2k/small
+  - override /device: null
+  - override /engines: null
   - override /mode: experiment
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention
@@ -32,7 +31,7 @@ datamodule:
 engines:
   trainer:
     run_engine: True
-    max_epochs: 100
+    max_epochs: 2_000
     engine:
       _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
       denoise_model: ${di:model}
@@ -49,8 +48,16 @@ engines:
         steps: 2_000
       loss_fn:
         _target_: torch.nn.L1Loss
-        reduction: "sum"
+        reduction: sum
     handlers:
+      # add handler to run validation engine
+      train_validator:
+        handler: ${eval:"lambda:di['engines.validator'].run(di['datamodule'].validation_dataloader())"}
+        event:
+          - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+            every: 250
+          - _target_: ignite.engine.events.Events.COMPLETED
+            every: 1
       # progress bar
       tqdm_progress_bar:
         handler:
@@ -82,12 +89,6 @@ engines:
         kwargs:
           model: ${di:model}
           kind: orthogonal
-      # add handler to run validation engine
-      train_validator:
-        handler: ${eval:"lambda:di['engines.validator'].run(di['datamodule'].validation_dataloader())"}
-        event:
-          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-          every: 5
       # add handler to log train images
       log_images:
         handler:

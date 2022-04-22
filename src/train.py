@@ -86,6 +86,12 @@ def train(config: TrainConfig) -> Optional[float]:
             log.info(f"Instantiating handler <{name}.{hdl_name}>")
             handler = try_instantiate(hd["handler"])
             event = try_instantiate(hd["event"]) if "event" in hd else None
+            # support list of events
+            if isinstance(event, (list, tuple)):
+                e = try_instantiate(event[0])
+                for v in event[1:]:
+                    e |= try_instantiate(v)
+                event = e
             kwargs = try_instantiate(hd["kwargs"]) if "kwargs" in hd else {}
             if hasattr(handler, "attach"):
                 handler.attach(eg.engine, **kwargs)
