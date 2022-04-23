@@ -48,7 +48,7 @@ engines:
         steps: 2_000
       loss_fn:
         _target_: torch.nn.L1Loss
-        reduction: sum
+        reduction: mean
     handlers:
       # add handler to run validation engine
       train_validator:
@@ -101,7 +101,7 @@ engines:
           logger: ${di:"loggers.tensorboard"}
           trigger_event:
             _target_: ignite.engine.events.Events.EPOCH_STARTED
-            every: 5
+            every: 250
   validator:
     run_engine: False
     max_epochs: 1
