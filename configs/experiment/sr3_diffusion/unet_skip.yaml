@@ -71,17 +71,6 @@ engines:
           output_transform: ${eval:"lambda x:x.get('loss')"}
         kwargs:
           name: loss
-      # early stopping
-      # early_stopping:
-      #   handler:
-      #     _target_: ignite.handlers.early_stopping.EarlyStopping
-      #     patience: 3
-      #     min_delta: 1e-2
-      #     score_function: ${eval:"lambda eg:-eg.state.output['loss']"}
-      #     trainer: ${di:engines.trainer}
-      #   event:
-      #     _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-      #     every: 1
       # handler to init. model weights
       weight_init:
         handler:

@@ -1,0 +1,43 @@
+# @package _global_
+
+# python run.py experiment=sr3_diffusion/unet_test
+
+# specify here default configuration
+defaults:
+  - override /datamodule: div2k/small
+  - override /device: null
+  - override /engines: sr3_diffusion_trainer
+  - override /mode: debug
+  - override /loggers: tensorboard
+  - override /model: sr3_diffusion/unet_attention
+
+device: "cuda"
+
+name: sr3_diffusion/unet_skip
+seed: 12345
+
+datamodule:
+  batch_size_train: 5
+  batch_size_test: 5
+  batch_size_validation: 5
+  subset: "unknown_x2"
+  patch_size: 128
+  train_split: train
+  test_split: validation[:50]
+  validation_split: validation[50:]
+  lr_upscaling: bicubic
+  in_memory: False
+
+engines:
+  trainer:
+    max_epochs: 20
+    handlers:
+      train_validator:
+        event:
+        - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 2
+      log_images:
+        kwargs:
+          trigger_event:
+            _target_: ignite.engine.events.Events.EPOCH_STARTED
+            every: 2

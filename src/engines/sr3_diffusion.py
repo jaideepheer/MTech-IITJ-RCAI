@@ -1,8 +1,10 @@
 from typing import Dict, Iterable, List, Tuple
 from ignite.engine.engine import Engine
 from ignite.engine.events import Events
+import numpy as np
 import torch.nn as nn
 import torch
+from src.datamodules.utils import de_normalize_image
 
 from src.utils.utils import get_module_device
 
@@ -205,24 +207,12 @@ class SR3DiffusionTrainingEngine(Engine):
         noisy = (gamma_samples.sqrt() * x0) + (eps_noise * (1.0 - gamma_samples).sqrt())
         return noisy, gamma_samples.view(orig_shape)
 
-    def _de_normalize(self, batch_meta: Dict[str, torch.Tensor]):
-        # ensure all data is tensor
-        device = get_module_device(self.denoise_model)
-        batch = {k: torch.as_tensor(v, device=device) for k, v in batch_meta.items()}
-        # de-normalize
-        img = torch.multiply(batch["image"], batch["stddev"])
-        img += batch["mean"]
-        return img
-
-    def train_step(self, engine: Engine, batch: Dict[str, torch.Tensor]):
+    def train_step(self, engine: Engine, batch: Dict[str, np.ndarray]):
         # prep data and opti
         self.denoise_model.train()
         device = get_module_device(self.denoise_model)
         self.optimizer.zero_grad(set_to_none=True)
-        x, y = [
-            torch.as_tensor(i, device=device)
-            for i in [batch["lr"]["image"], batch["hr"]["image"]]
-        ]
+        x, y = [torch.as_tensor(i, device=device) for i in [batch["lr"], batch["hr"]]]
         # random t steps, up to T
         t = torch.randint(
             low=0,
@@ -235,34 +225,19 @@ class SR3DiffusionTrainingEngine(Engine):
         # generate noisy target
         y_noisy, gamma_samples = self.q_sample(y, t, eps_noise)
         # ask model to predict added noise
-        y_noise_pred = self.predict_noise(
+        noise_pred = self.predict_noise(
             noisy=y_noisy, gamma_noise_level=gamma_samples, condition=x
         )
         # calc loss and back step
-        loss = self.loss_fn(eps_noise, y_noise_pred)
+        loss: torch.Tensor = self.loss_fn(eps_noise, noise_pred)
         loss.backward()
         self.optimizer.step()
         # log
         return {
             "loss": loss.item(),
-            "x_original": self._de_normalize(
-                {
-                    **batch["lr"],
-                    "image": x,
-                }
-            ).detach(),
-            "y_original": self._de_normalize(
-                {
-                    **batch["hr"],
-                    "image": y,
-                }
-            ).detach(),
-            "y_noisy": self._de_normalize(
-                {
-                    **batch["hr"],
-                    "image": y_noisy,
-                }
-            ).detach(),
+            "x_original": de_normalize_image(x).detach(),
+            "y_original": de_normalize_image(y).detach(),
+            "y_noisy": de_normalize_image(y_noisy).detach(),
             "gamma_noise_level": gamma_samples.detach(),
         }
 
@@ -305,32 +280,23 @@ class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
         """
         self.denoise_model.eval()
         device = get_module_device(self.denoise_model)
-        x = torch.as_tensor(batch["lr"]["image"], device=device)
-        x_mean = torch.as_tensor(batch["lr"]["mean"], device=device)
-        x_stddev = torch.as_tensor(batch["lr"]["stddev"], device=device)
-        ret = {"lr": self._de_normalize(batch["lr"])}
+        x = torch.as_tensor(batch["lr"], device=device)
+        ret = {"lr": batch["lr"].detach()}
         if "hr" in batch:
-            ret["hr"] = self._de_normalize(batch["hr"])
+            ret["hr"] = batch["hr"].detach()
         # start with random image
-        img = torch.randn_like(x)
+        image = torch.randn_like(x)
         # iteratively refine image
         steps = list(reversed(range(0, self.T)))
         for i in steps:
-            img = self.p_sample(t=i, y=img, condition_x=x)
+            image = self.p_sample(t=i, y_noisy=image, condition_x=x)
             if i in self.steps_to_record:
-                # de-normalize
-                img = self._de_normalize(
-                    {
-                        "image": img,
-                        "mean": x_mean,
-                        "stddev": x_stddev,
-                    }
-                ).detach()
-                ret[i] = img
+                # save image
+                ret[i] = de_normalize_image(image).detach()
         return ret
 
     @torch.no_grad()
-    def p_sample(self, t: int, y: torch.Tensor, condition_x: torch.Tensor):
+    def p_sample(self, t: int, y_noisy: torch.Tensor, condition_x: torch.Tensor):
         """
         Given y_t and conditional tensor x, this returns p(y_{t-1} | y_t, x).
 
@@ -344,21 +310,21 @@ class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
             The conditioning tensor `x`.
         """
         # apply denoise model to predict noise
-        y_pred = self.predict_noise(noisy=y, t=t, condition=condition_x)
-        # clamp denoised image
+        noise_pred = self.predict_noise(noisy=y_noisy, t=t, condition=condition_x)
+        # clamp predicted noise
         if self.clamp_after_denoise:
-            y_pred = torch.clamp(y_pred, -1.0, 1.0)
+            noise_pred = torch.clamp(noise_pred, -1.0, 1.0)
         # calc. denoise mean
         # See: Eq. 11 in https://arxiv.org/abs/2104.07636v2
         mean = (
-            y - self.denoise_model.root_one_minus_gamma[t] * y_pred
+            y_noisy - self.denoise_model.root_one_minus_gamma[t] * noise_pred
         ) / self.denoise_model.inv_root_gamma[t]
-        # eps for last inference step
+        # no Z_noise for last inference step
         if t == 0:
             return mean
         # sample normal noise
-        eps = torch.randn_like(mean)
+        Z_noise = torch.randn_like(mean)
         # calc variance
         stddev = self.denoise_model.q_posterior_stddev_coef[t]
         # calc. y_{t-1}
-        return mean + stddev * eps
+        return mean + stddev * Z_noise

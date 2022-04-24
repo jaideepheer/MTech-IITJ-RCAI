@@ -80,3 +80,4 @@ dependencies:
       - pytorch-ignite
       - tensorboardX
       - crc32c
+      - torchtyping

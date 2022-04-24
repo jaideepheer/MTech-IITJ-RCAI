@@ -4,7 +4,6 @@ import torch
 from src.datamodules.interface import DatamoduleInterface
 import tensorflow_datasets as tfds
 import tensorflow as tf
-import random
 
 Div2kSubset_T = Literal[
     "bicubic_x2",
@@ -67,24 +66,13 @@ class Div2kDatamodule(DatamoduleInterface):
         Called to download/extract data.
         """
         self.datasets: Dict[str, tf.data.Dataset] = {}
-
-        def _per_image_norm_tensor(image: tf.Tensor):
+        
+        def _image_norm_transform(image: tf.Tensor):
             image = tf.cast(image, dtype=tf.float32)
-            num_pixels = tf.reduce_prod(tf.shape(image)[-3:])
-            image_mean = tf.reduce_mean(image, axis=[-1, -2, -3], keepdims=True)
-            # Apply a minimum normalization that protects us against uniform images.
-            stddev = tf.math.reduce_std(image, axis=[-1, -2, -3], keepdims=True)
-            min_stddev = tf.math.rsqrt(tf.cast(num_pixels, tf.float32))
-            adjusted_stddev = tf.maximum(stddev, min_stddev)
-            # apply normalization
-            image -= image_mean
-            image = tf.divide(image, adjusted_stddev)
-            return {
-                "image": image,
-                # / 255.0 is done to ensure de-normalisation keeps values in [0,1]
-                "mean": image_mean / 255.0,
-                "stddev": stddev / 255.0,
-            }
+            image /= 255.0
+            # rescale to [-1,1]
+            image = 2*image - 1
+            return image
 
         def _map_fn(dt):
             hr = dt["hr"]
@@ -93,31 +81,29 @@ class Div2kDatamodule(DatamoduleInterface):
             if self.lr_upscaling is not None:
                 lr = tf.image.resize(lr, tf.shape(hr)[-3:-1], method=self.lr_upscaling)
             # normalize images
-            lr_meta = _per_image_norm_tensor(lr)
-            hr_meta = _per_image_norm_tensor(hr)
-            lr = lr_meta["image"]
-            hr = hr_meta["image"]
+            lr = _image_norm_transform(lr)
+            hr = _image_norm_transform(hr)
             # change to nchw format
             lr = tf.transpose(lr, [2, 0, 1])
             hr = tf.transpose(hr, [2, 0, 1])
             return {
-                "hr": {
-                    **hr_meta,
-                    "image": hr,
-                },
-                "lr": {
-                    **lr_meta,
-                    "image": lr,
-                },
+                "hr": hr,
+                "lr": lr,
             }
 
         def _post_cache_map(dt):
-            seed = tf.random.get_global_generator().make_seeds(count=1)[:, 0]
+            seed = tf.random.get_global_generator().make_seeds(count=2)
             for k in ["lr", "hr"]:
-                dt[k]["image"] = tf.image.stateless_random_crop(
-                    dt[k]["image"],
+                # random crop
+                dt[k] = tf.image.stateless_random_crop(
+                    dt[k],
                     size=(3, self.patch_size, self.patch_size),
-                    seed=seed,
+                    seed=seed[:, 0],
+                )
+                # random horizontal flip
+                dt[k] = tf.image.stateless_random_flip_left_right(
+                    dt[k],
+                    seed=seed[:, 1],
                 )
             return dt
 
