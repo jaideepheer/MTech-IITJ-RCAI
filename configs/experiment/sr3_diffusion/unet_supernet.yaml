@@ -15,16 +15,25 @@ defaults:
 
 device: "cuda:11"
 
-name: sr3_diffusion/unet_supernet_test
+name: sr3_diffusion/unet_supernet
 seed: 12345
 
 loggers:
   tensorboard:
     handlers:
-      train_output:
+      arch_output:
+        engines: ['arch_trainer']
         log_handler:
+          _target_: ignite.contrib.handlers.tensorboard_logger.OutputHandler
+          tag: arch
+          metric_names: all
           # log temperature state attribute
           state_attributes: ['temperature']
+          # include all return keys with 'loss' in them
+          output_transform: ${eval:"lambda o:{k:v for k,v in o.items() if 'loss' in k}"}
+        event:
+          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 1
 
 # reduce data loading and dataset size
 datamodule:
@@ -45,9 +54,8 @@ engines:
   trainer:
     engine:
       max_epochs: 2_000
-      metric_loss_weights:
-        flops: 1e-15
-        latency: 1e-3
+      # don't add flops for trainning supernet, instead add it for arch. params
+      metric_loss_weights: null
       beta_variance_schedule:
         _target_: torch.linspace
         start: 1e-6
@@ -73,9 +81,9 @@ engines:
           every: 1
       # supernet trigger
       train_supernet:
-        handler: ${eval:"lambda:di['engines.supernet_trainer'].run()"}
+        handler: ${eval:"lambda:di['engines.arch_trainer'].run()"}
         event:
-        - _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+        - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
           every: 1
       # update temperature
       temperature_fn:
@@ -125,11 +133,15 @@ engines:
             _target_: ignite.engine.events.Events.EPOCH_STARTED
             every: 250
   # supernet engine
-  supernet_trainer:
+  arch_trainer:
     run_engine: False
     engine:
       _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
       max_epochs: ${engines.trainer.engine.max_epochs}
+      # metric weights make metrics in ~0.1 scale
+      metric_loss_weights:
+        flops: 5e-16
+        latency: 5e-5
       # train supernet params on validation data
       data: ${di:datamodule_validation_loader}
       denoise_model: ${di:model}
@@ -150,14 +162,21 @@ engines:
         event:
           _target_: ignite.engine.events.Events.STARTED
           every: 1
-      # run for only 1 iteration, then pause
+      # run for only 1 epoch, then pause
       one_epoch:
         handler: ${eval:"lambda e:e.terminate()"}
         event:
-          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
           every: 1
         kwargs:
-          e: ${di:engines.supernet_trainer}
+          e: ${di:engines.arch_trainer}
+      # progress bar
+      tqdm_progress_bar:
+        handler:
+          _target_: ignite.contrib.handlers.tqdm_logger.ProgressBar
+        kwargs:
+          metric_names: all
+
   # validation engine
   validator:
     engine:

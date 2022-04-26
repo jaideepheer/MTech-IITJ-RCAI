@@ -23,10 +23,7 @@ class SR3DiffusionTrainingEngine(EngineInterface):
         independent_train_t_sample: bool = True,
         beta_variance_schedule: List[float],
         # weights of metrics to add to the loss value
-        metric_loss_weights: Dict[str, float] = {
-            "flops": 1e-15,
-            "latency": 1e-3,
-        },
+        metric_loss_weights: Dict[str, float] = {},
         **kwargs,
     ):
         """
