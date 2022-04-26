@@ -1,6 +1,6 @@
 # @package _global_
 
-# python run.py experiment=sr3_diffusion/unet_supernet_test
+# python run.py experiment=sr3_diffusion/unet_supernet
 
 # specify here default configuration
 defaults:
@@ -28,9 +28,9 @@ loggers:
 
 # reduce data loading and dataset size
 datamodule:
-  batch_size_train: 1
-  batch_size_test: 1
-  batch_size_validation: 1
+  batch_size_train: 16
+  batch_size_test: 16
+  batch_size_validation: 16
   subset: "unknown_x2"
   patch_size: 128
   train_split: train
@@ -86,7 +86,7 @@ engines:
               - _target_: src.handlers.supernet_temperature.create_tanh_decay
                 max: 20.0
                 min: 0.1
-                width: 20
+                width: 2_000
         event:
           _target_: ignite.engine.events.Events.ITERATION_COMPLETED
           every: 1

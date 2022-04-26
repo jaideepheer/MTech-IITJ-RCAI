@@ -5,7 +5,7 @@
 # specify here default configuration
 defaults:
   - /engines/sr3_diffusion_infer@engines.tester
-  - /loggers/wandb
+  # - /loggers/wandb
   - override /datamodule: div2k/small
   - override /device: null
   - override /engines: sr3_diffusion_trainer
@@ -13,15 +13,15 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention
 
-device: "cuda:14"
+device: "cuda:10"
 
 name: sr3_diffusion/unet_skip
 seed: 12345
 
 datamodule:
-  batch_size_train: 16
-  batch_size_test: 16
-  batch_size_validation: 16
+  batch_size_train: 1
+  batch_size_test: 1
+  batch_size_validation: 1
   subset: "unknown_x2"
   patch_size: 128
   train_split: train

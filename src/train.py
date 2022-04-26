@@ -13,6 +13,7 @@ from src.types.config import (
 import hydra
 from kink import di
 from ignite.engine.engine import Engine
+import torch
 import torch.nn as nn
 import tensorflow as tf
 
@@ -63,7 +64,7 @@ def train(config: TrainConfig) -> Optional[float]:
     model: nn.Module = try_instantiate(config.model)
     if config.device is not None:
         log.info(f"Instantiating device <{config.device}>")
-        device = try_instantiate(config.device)
+        device = torch.device(config.device) if isinstance(config.device, str) else try_instantiate(config.device)
         log.info(f"Selected device: {device}")
         model = model.to(device=device)
     di["model"] = model

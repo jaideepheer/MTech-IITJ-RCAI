@@ -6,6 +6,7 @@ from ignite.engine.events import Events
 
 from torchinfo import summary
 
+from src.utils.utils import get_module_device
 from src.torchmodules.mixins import ShapeRecorderMixin
 
 
@@ -15,8 +16,15 @@ class PrintModelSummary:
         engine: Engine,
         model: ShapeRecorderMixin,
     ):
+        device = get_module_device(model)
+
         def _fn():
-            stats = summary(model, input_size=model.input_shapes(), verbose=0)
+            stats = summary(
+                model,
+                input_size=model.input_shapes(),
+                verbose=0,
+                device=device,
+            )
             console = Console()
             # table of layers
             table = Table(header_style="bold magenta")
