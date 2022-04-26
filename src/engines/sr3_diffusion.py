@@ -1,29 +1,38 @@
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List
 from ignite.engine.engine import Engine
 from ignite.engine.events import Events
 import numpy as np
 import torch.nn as nn
 import torch
 from src.datamodules.utils import de_normalize_image
+from rich.progress import track
+from src.engines.interface import EngineInterface
+from src.torchmodules.mixins import MeasurableModuleMixin
 
 from src.utils.utils import get_module_device
 
 
-class SR3DiffusionTrainingEngine(Engine):
+class SR3DiffusionTrainingEngine(EngineInterface):
     def __init__(
         self,
         *_,
-        denoise_model: nn.Module,
+        denoise_model: MeasurableModuleMixin,
         optimizer: torch.optim.Optimizer,
         loss_fn: nn.Module = nn.MSELoss(reduction="sum"),
         conditional: bool = True,
         independent_train_t_sample: bool = True,
         beta_variance_schedule: List[float],
+        # weights of metrics to add to the loss value
+        metric_loss_weights: Dict[str, float] = {
+            "flops": 1e-15,
+            "latency": 1e-3,
+        },
+        **kwargs,
     ):
         """
         Parameters
         ---
-        denoise_model: nn.Module
+        denoise_model: MeasurableModuleMixin
             The learnable child module used for denoising.
             This module must take two arguments as input,
                 y_t: torch.Tensor
@@ -44,14 +53,17 @@ class SR3DiffusionTrainingEngine(Engine):
             If True, the no. of steps t ~ U(T) is different for each batch element.
         beta_variance_schedule: torch.Tensor
             A 1-D tensor of variance beta values, beta_1 to beta_T.
+        metric_loss_weights: Dict[str, float]
+            A dict specifying which metric to add to loss after how much scaling.
         """
+        self.metric_loss_weights = metric_loss_weights
         self.denoise_model = denoise_model
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.conditional = conditional
         self.independent_train_t_sample = independent_train_t_sample
         self.beta_variance_schedule = beta_variance_schedule
-        super().__init__(self.train_step)
+        super().__init__(self.train_step, **kwargs)
         self.add_event_handler(Events.EPOCH_STARTED, self.set_variance_schedule)
 
     @torch.no_grad()
@@ -230,10 +242,30 @@ class SR3DiffusionTrainingEngine(Engine):
         )
         # calc loss and back step
         loss: torch.Tensor = self.loss_fn(eps_noise, noise_pred)
+        # add metric values to loss
+        rt = {}
+        if len(self.metric_loss_weights) > 0:
+            metric_losses = {
+                k: torch.zeros((1), device=device)
+                for k in self.metric_loss_weights.keys()
+            }
+            metric_losses = self.denoise_model.forward_measurements(metric_losses)
+            # store data in return variable for logging
+            rt = {f"loss/{k}": v.item() for k, v in metric_losses.items()}
+            # rescale metric measurements
+            metric_losses = {
+                k: (self.metric_loss_weights[k] * v) for k, v in metric_losses.items()
+            }
+            rt |= {f"loss/scaled_{k}": v.item() for k, v in metric_losses.items()}
+            # add everything to loss
+            for v in metric_losses.values():
+                loss = loss + v
+        # backward and step
         loss.backward()
         self.optimizer.step()
         # log
         return {
+            **rt,
             "loss": loss.item(),
             "x_original": de_normalize_image(x).detach(),
             "y_original": de_normalize_image(y).detach(),
@@ -251,13 +283,14 @@ class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
         beta_variance_schedule: List[float],
         steps_to_record: List[int] = [],
         clip_after_denoise: bool = True,
+        **kwargs,
     ):
         self.denoise_model = denoise_model
         self.conditional = conditional
         self.beta_variance_schedule = beta_variance_schedule
         self.steps_to_record = steps_to_record
         self.clamp_after_denoise = clip_after_denoise
-        Engine.__init__(self, self.infer)
+        EngineInterface.__init__(self, self.infer, **kwargs)
         self.add_event_handler(Events.EPOCH_STARTED, self.set_variance_schedule)
 
     @torch.no_grad()
@@ -281,14 +314,16 @@ class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
         self.denoise_model.eval()
         device = get_module_device(self.denoise_model)
         x = torch.as_tensor(batch["lr"], device=device)
-        ret = {"lr": batch["lr"].detach()}
+        ret = {"lr": de_normalize_image(x).detach()}
         if "hr" in batch:
-            ret["hr"] = batch["hr"].detach()
+            ret["hr"] = de_normalize_image(
+                torch.as_tensor(batch["hr"], device=device)
+            ).detach()
         # start with random image
         image = torch.randn_like(x)
         # iteratively refine image
         steps = list(reversed(range(0, self.T)))
-        for i in steps:
+        for i in track(steps, f"[{self.T}] Batch inference...", transient=True):
             image = self.p_sample(t=i, y_noisy=image, condition_x=x)
             if i in self.steps_to_record:
                 # save image
@@ -328,3 +363,9 @@ class SR3DiffusionInferenceEngine(SR3DiffusionTrainingEngine):
         stddev = self.denoise_model.q_posterior_stddev_coef[t]
         # calc. y_{t-1}
         return mean + stddev * Z_noise
+
+
+class SubnetSR3DiffusionInferenceEngine(SR3DiffusionInferenceEngine):
+    def infer(self, engine: Engine, batch: Dict[str, torch.Tensor]):
+        with self.denoise_model.subnet_masked():
+            return super().infer(engine, batch)

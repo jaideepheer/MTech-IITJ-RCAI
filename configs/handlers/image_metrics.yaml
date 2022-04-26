@@ -1,0 +1,23 @@
+psnr:
+  handler:
+    _target_: ignite.metrics.PSNR
+    data_range: 1.0
+    device: ${device}
+    output_transform: ${eval:"lambda e:(e[0],e['hr'])"}
+  kwargs:
+    name: psnr
+ssim:
+  handler:
+    _target_: ignite.metrics.SSIM
+    data_range: 1.0
+    device: ${device}
+    output_transform: ${eval:"lambda e:(e[0],e['hr'])"}
+  kwargs:
+    name: ssim
+fid:
+  handler:
+    _target_: ignite.metrics.FID
+    device: ${device}
+    output_transform: ${eval:"lambda e:(e[0],e['hr'])"}
+  kwargs:
+    name: fid

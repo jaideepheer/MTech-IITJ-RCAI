@@ -11,13 +11,8 @@ loss_running_avg:
   kwargs:
     name: loss
 
-early_stopping:
+model_summary:
   handler:
-    _target_: ignite.handlers.early_stopping.EarlyStopping
-    patience: 3
-    min_delta: 1e-2
-    score_function: ${eval:"lambda eg:-eg.state.output['loss']"}
-    trainer: ${di:engines.trainer}
-  event:
-    _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-    every: 1
+    _target_: src.handlers.print_summary.PrintModelSummary
+  kwargs:
+    model: ${di:model}

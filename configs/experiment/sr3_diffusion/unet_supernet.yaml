@@ -1,0 +1,196 @@
+# @package _global_
+
+# python run.py experiment=sr3_diffusion/unet_supernet_test
+
+# specify here default configuration
+defaults:
+  - /engines/sr3_diffusion_infer@engines.tester
+  - /loggers/wandb
+  - override /datamodule: div2k/small
+  - override /device: null
+  - override /engines: sr3_diffusion_trainer
+  - override /mode: experiment
+  - override /loggers: tensorboard
+  - override /model: sr3_diffusion/unet_attention_supernet
+
+device: "cuda:13"
+
+name: sr3_diffusion/unet_supernet_test
+seed: 12345
+
+loggers:
+  tensorboard:
+    handlers:
+      train_output:
+        log_handler:
+          # log temperature state attribute
+          state_attributes: ['temperature']
+
+# reduce data loading and dataset size
+datamodule:
+  batch_size_train: 1
+  batch_size_test: 1
+  batch_size_validation: 1
+  subset: "unknown_x2"
+  patch_size: 128
+  train_split: train
+  test_split: validation[:50]
+  validation_split: validation[50:]
+  lr_upscaling: bicubic
+  in_memory: True
+
+# reduce epochs and variance schedule
+# increase validation frequency
+engines:
+  trainer:
+    engine:
+      max_epochs: 2_000
+      beta_variance_schedule:
+        _target_: torch.linspace
+        start: 1e-6
+        end: 1e-2
+        steps: 2_000
+      conditional: True
+      optimizer:
+        _target_: torch.optim.Adam
+        lr: 3e-6
+        _args_:
+          - ${eval:"di['model'].supernet_parameters()"}
+      loss_fn:
+        _target_: torch.nn.L1Loss
+        reduction: mean
+    handlers:
+      # validation trigger
+      train_validator:
+        handler: ${eval:"lambda:di['engines.validator'].run()"}
+        event:
+        - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 250
+        - _target_: ignite.engine.events.Events.COMPLETED
+          every: 1
+      # supernet trigger
+      train_supernet:
+        handler: ${eval:"lambda:di['engines.supernet_trainer'].run()"}
+        event:
+        - _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      # update temperature
+      temperature_fn:
+        handler:
+          _target_: src.handlers.supernet_temperature.SupernetGlobalTemperatureUpdate
+          model: ${di:model}
+          initial_value: 20.0
+          update_fn:
+            _target_: src.handlers.supernet_temperature.update_wrapper
+            _args_:
+              - _target_: src.handlers.supernet_temperature.create_tanh_decay
+                max: 20.0
+                min: 0.1
+                width: 20
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      # handler to init. model weights
+      weight_init:
+        handler:
+          _target_: src.handlers.weight_init.ModelWeightHandler
+        kwargs:
+          model: ${di:model}
+          kind: orthogonal
+      # log subnet measurement metrics
+      subnet_metrics:
+        handler:
+          _target_: src.handlers.subnet_measurement.SubnetMeasurement
+          model: ${di:model}
+          metric_to_state_names:
+            flops: "subnet/flops"
+            latency: "subnet/latency"
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 50
+      # log train images
+      log_images:
+        handler:
+          _target_: src.handlers.log_output_images.LogOutputImages
+          tag: train_images
+          metric_names: ['x_original', 'y_original', 'y_noisy']
+          n_images: 4
+          orientation: vertical
+        kwargs:
+          logger: ${di:"loggers.tensorboard"}
+          trigger_event:
+            _target_: ignite.engine.events.Events.EPOCH_STARTED
+            every: 250
+  # supernet engine
+  supernet_trainer:
+    run_engine: False
+    engine:
+      _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
+      max_epochs: ${engines.trainer.engine.max_epochs}
+      # train supernet params on validation data
+      data: ${di:datamodule_validation_loader}
+      denoise_model: ${di:model}
+      optimizer:
+        _target_: torch.optim.Adam
+        lr: 3e-6
+        _args_:
+          - ${eval:"di['model'].architecture_parameters()"}
+      conditional: True
+      beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
+      loss_fn:
+        _target_: torch.nn.L1Loss
+        reduction: mean
+    handlers:
+      # run for only 1 iteration, then pause
+      one_epoch:
+        handler: ${eval:"lambda e:e.terminate()"}
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+        kwargs:
+          e: ${di:engines.supernet_trainer}
+  # validation engine
+  validator:
+    engine:
+      _target_: src.engines.sr3_diffusion.SubnetSR3DiffusionInferenceEngine
+      max_epochs: ${engines.trainer.engine.max_epochs}
+      data: ${di:datamodule_validation_loader}
+      denoise_model: ${di:model}
+      steps_to_record: [1999, 1500, 1000, 500, 0]
+      beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
+    handlers:
+      # validate for only 1 epoch, then pause
+      one_epoch:
+        handler: ${eval:"lambda e:e.terminate()"}
+        event:
+          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 1
+        kwargs:
+          e: ${di:engines.validator}
+      # add handler to log validation images
+      log_images:
+        handler:
+          _target_: src.handlers.log_output_images.LogOutputImages
+          tag: validation_images
+          metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+          n_images: 4
+          orientation: vertical
+        kwargs:
+          logger: ${di:"loggers.tensorboard"}
+  tester:
+    engine:
+      _target_: src.engines.sr3_diffusion.SubnetSR3DiffusionInferenceEngine
+      max_epochs: 1
+      steps_to_record: [1999, 1500, 1000, 500, 0]
+      beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
+    handlers:
+      # add handler to log validation images
+      log_images:
+        handler:
+          _target_: src.handlers.log_output_images.LogOutputImages
+          tag: test_images
+          metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+          n_images: 4
+          orientation: vertical
+        kwargs:
+          logger: ${di:"loggers.tensorboard"}

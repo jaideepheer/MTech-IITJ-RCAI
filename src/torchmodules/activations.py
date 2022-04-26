@@ -1,46 +1,30 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 from torch.nn.functional import gumbel_softmax, softmax
 
 
 class GumbelSoftmax(nn.Module):
-    def __init__(self, tau: float, hard: bool = False, dim: int = 0):
+    def __init__(self, temperature: float, hard: bool = False, dim: int = 0):
         super().__init__()
-        self.tau = tau
+        self.temperature = temperature
         self.hard = hard
         self.dim = dim
 
     def forward(self, x):
         return gumbel_softmax(
             x,
-            tau=self.tau,
+            tau=float(self.temperature),
             hard=self.hard,
             dim=self.dim,
         )
 
-    @property
-    def temperature(self):
-        return self.tau
-
-    @temperature.setter
-    def temperature(self, value):
-        self.tau = value
-
 
 class SoftmaxTemperature(nn.Module):
-    def __init__(self, temp: float = 1.0, dim: int = 0):
+    def __init__(self, temperature: float = 1.0, dim: int = 0):
         super().__init__()
-        self.temp = temp
+        self.temperature = temperature
         self.dim = dim
 
     def forward(self, x):
-        x = x / self.temp
+        x = x / self.temperature
         return softmax(x, dim=self.dim)
-
-    @property
-    def temperature(self):
-        return self.temp
-
-    @temperature.setter
-    def temperature(self, value):
-        self.temp = value

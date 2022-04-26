@@ -66,12 +66,12 @@ class Div2kDatamodule(DatamoduleInterface):
         Called to download/extract data.
         """
         self.datasets: Dict[str, tf.data.Dataset] = {}
-        
+
         def _image_norm_transform(image: tf.Tensor):
             image = tf.cast(image, dtype=tf.float32)
             image /= 255.0
             # rescale to [-1,1]
-            image = 2*image - 1
+            image = 2 * image - 1
             return image
 
         def _map_fn(dt):

@@ -15,7 +15,7 @@ class ModelWeightInitKind(str, Enum):
 class ModelWeightHandler:
     @torch.no_grad()
     def _orthogonal_init(self, m: nn.Module):
-        if hasattr(m, 'weight'):
+        if hasattr(m, "weight"):
             cls_name = m.__class__.__name__
             if "Conv" in cls_name:
                 nn.init.orthogonal_(m.weight.data, gain=1)

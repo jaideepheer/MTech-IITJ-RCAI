@@ -18,6 +18,7 @@ from functools import wraps
 import sys
 import gc
 from pathlib import Path
+from tensorboard.util import tb_logging
 
 from src.types.config import RunConfig, RunMode
 
@@ -203,7 +204,7 @@ def auto_select_gpus(
         rt, _, _ = zip(*rt)
         rt = list(rt)
         if as_str:
-            rt = [f'cuda:{i}' for i in rt]
+            rt = [f"cuda:{i}" for i in rt]
     return rt
 
 
@@ -237,6 +238,11 @@ def extras(config: RunConfig) -> None:
 
     # Set log level for datasets logger
     logging.getLogger("datasets.builder").setLevel(logging.ERROR)
+    # add log filter for tensorboard
+    # See: https://github.com/wandb/client/issues/3274
+    tb_logging.get_logger().addFilter(
+        lambda r: not (r.name == "tensorboard" and "No path found" in r.msg)
+    )
 
 
 def print_config(

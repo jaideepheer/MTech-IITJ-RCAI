@@ -1,9 +1,11 @@
 import logging
+from pathlib import Path
 from typing import Optional
 
 from hjson import OrderedDict
 from omegaconf import OmegaConf
 from src.datamodules.interface import DatamoduleInterface
+from src.engines.interface import EngineInterface
 from src.types.config import (
     IgniteEngine,
     TrainConfig,
@@ -39,7 +41,7 @@ def train(config: TrainConfig) -> Optional[float]:
     """
     # disable tf GPU usage
     # See: https://datascience.stackexchange.com/a/76039/134896
-    tf.config.set_visible_devices([], 'GPU')
+    tf.config.set_visible_devices([], "GPU")
 
     # Set seed for random number generators in pytorch, numpy and python.random
     if config.seed is not None:
@@ -48,10 +50,13 @@ def train(config: TrainConfig) -> Optional[float]:
     # Instantiate datamodule
     log.info(f"Instantiating datamodule <{config.datamodule._target_}>")
     datamodule: DatamoduleInterface = try_instantiate(config.datamodule)
-    di["datamodule"] = datamodule
     log.info("Running datamodule setup")
     datamodule.setup_data()
     datamodule.setup_splits()
+    di["datamodule"] = datamodule
+    di["datamodule_train_loader"] = datamodule.train_dataloader()
+    di["datamodule_test_loader"] = datamodule.test_dataloader()
+    di["datamodule_validation_loader"] = datamodule.validation_dataloader()
 
     # Instantiate model
     log.info(f"Instantiating model <{config.model._target_}>")
@@ -73,11 +78,11 @@ def train(config: TrainConfig) -> Optional[float]:
         di[f"engines.{name}"] = eg.engine
 
     # Instantiate loggers
-    loggers = []
-    for name, lg in config.loggers.items():
+    loggers = {}
+    for name, lg in sorted(config.loggers.items(), reverse=True):
         log.info(f"Instantiating logger <{name}>")
         logger = try_instantiate(lg.logger)
-        loggers.append(logger)
+        loggers[name] = logger
         di[f"loggers.{name}"] = logger
 
     # Instantiate engine handlers
@@ -100,27 +105,30 @@ def train(config: TrainConfig) -> Optional[float]:
 
     # Instantiate logger handlers
     for name, lg in config.loggers.items():
-        for hd_name, hdl in lg.handlers.items():
-            log.info(f"Attaching logger handler <{hd_name}>")
-            handler = try_instantiate(hdl.log_handler)
-            event = try_instantiate(hdl.event) if "event" in hdl else None
-            to_attach = hdl.engines if "engines" in hdl else engines.keys()
-            for eg_name in to_attach:
-                logger.attach(
-                    engines[eg_name].engine,
-                    event_name=event,
-                    log_handler=handler,
-                )
+        if "handlers" in lg:
+            for hd_name, hdl in lg.handlers.items():
+                log.info(f"Attaching logger handler <{name}.{hd_name}>")
+                handler = try_instantiate(hdl.log_handler)
+                event = try_instantiate(hdl.event) if "event" in hdl else None
+                to_attach = hdl.engines if "engines" in hdl else engines.keys()
+                for eg_name in to_attach:
+                    if eg_name in engines:
+                        loggers[name].attach(
+                            engines[eg_name].engine,
+                            event_name=event,
+                            log_handler=handler,
+                        )
+                    else:
+                        log.warn(
+                            f"Attempted to attach logger handler <{hd_name}> to non-existing engine <{eg_name}>"
+                        )
 
     # Run engines
     for name, engine in engines.items():
         if engine.run_engine:
             log.info(f"Running engine <{name}>")
-            engine.engine.run(
-                datamodule.train_dataloader(),
-                max_epochs=engine.max_epochs,
-            )
+            engine.engine.run()
 
     # close all loggers
-    for l in loggers:
+    for _, l in loggers.items():
         l.close()

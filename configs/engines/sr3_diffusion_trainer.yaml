@@ -1,9 +1,16 @@
+defaults:
+  - /handlers/image_metrics@validator.handlers
+  - /handlers/tqdm_progress@validator.handlers
+  - /handlers/default_train@trainer.handlers
+  - /engines/sr3_diffusion_infer@tester
+
 
 trainer:
   run_engine: True
-  max_epochs: 2_000
   engine:
     _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
+    max_epochs: 2_000
+    data: ${di:datamodule_train_loader}
     denoise_model: ${di:model}
     optimizer:
       _target_: torch.optim.Adam
@@ -20,35 +27,22 @@ trainer:
       _target_: torch.nn.L1Loss
       reduction: mean
   handlers:
-    # add handler to run validation engine
+    # run validation engine
     train_validator:
-      handler: ${eval:"lambda:di['engines.validator'].run(di['datamodule'].validation_dataloader())"}
+      handler: ${eval:"lambda:di['engines.validator'].run()"}
       event:
         - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
           every: 250
         - _target_: ignite.engine.events.Events.COMPLETED
           every: 1
-    # progress bar
-    tqdm_progress_bar:
-      handler:
-        _target_: ignite.contrib.handlers.tqdm_logger.ProgressBar
-      kwargs:
-        metric_names: all
-    # log loss metric
-    loss_running_avg:
-      handler:
-        _target_: ignite.metrics.RunningAverage
-        output_transform: ${eval:"lambda x:x.get('loss')"}
-      kwargs:
-        name: loss
-    # handler to init. model weights
+    # init. model weights
     weight_init:
       handler:
         _target_: src.handlers.weight_init.ModelWeightHandler
       kwargs:
         model: ${di:model}
         kind: orthogonal
-    # add handler to log train images
+    # log train images
     log_images:
       handler:
         _target_: src.handlers.log_output_images.LogOutputImages
@@ -63,25 +57,28 @@ trainer:
           every: 250
 validator:
   run_engine: False
-  max_epochs: 1
   engine:
     _target_: src.engines.sr3_diffusion.SR3DiffusionInferenceEngine
+    max_epochs: ${engines.trainer.engine.max_epochs}
+    data: ${di:datamodule_train_loader}
     denoise_model: ${di:model}
     conditional: True
-    steps_to_record: [1500, 1000, 500, 0]
+    steps_to_record: [1999, 1500, 1000, 500, 0]
     beta_variance_schedule:
       _target_: torch.linspace
       start: 1e-6
       end: 1e-2
       steps: 2_000
   handlers:
-    # progress bar
-    tqdm_progress_bar:
-      handler:
-        _target_: ignite.contrib.handlers.tqdm_logger.ProgressBar
+    # validate for only 1 epoch, then pause
+    one_epoch:
+      handler: ${eval:"lambda e:e.terminate()"}
+      event:
+        _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+        every: 1
       kwargs:
-        metric_names: all
-    # add handler to log validation images
+        e: ${di:engines.validator}
+    # log valid images
     log_images:
       handler:
         _target_: src.handlers.log_output_images.LogOutputImages

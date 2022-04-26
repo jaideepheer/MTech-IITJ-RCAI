@@ -1,10 +1,12 @@
 
 defaults:
-  - /handlers: tqdm_progress
+  - /handlers/image_metrics@handlers
+  - /handlers/tqdm_progress@handlers
 
-run_engine: False
-max_epochs: 1
+run_engine: True
 engine:
+  max_epochs: 1
+  data: ${di:datamodule_test_loader}
   _target_: src.engines.sr3_diffusion.SR3DiffusionInferenceEngine
   denoise_model: ${di:model}
   conditional: True
@@ -14,3 +16,13 @@ engine:
     start: 1e-6
     end: 1e-2
     steps: 2_000
+handlers:
+  log_images:
+    handler:
+      _target_: src.handlers.log_output_images.LogOutputImages
+      tag: test_images
+      metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+      n_images: 4
+      orientation: vertical
+    kwargs:
+      logger: ${di:"loggers.tensorboard"}

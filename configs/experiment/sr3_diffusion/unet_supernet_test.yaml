@@ -1,0 +1,160 @@
+# @package _global_
+
+# python run.py experiment=sr3_diffusion/unet_supernet_test
+
+# specify here default configuration
+defaults:
+  - /engines/sr3_diffusion_infer@engines.tester
+  # - /loggers/wandb
+  - override /datamodule: div2k/small
+  - override /device: null
+  - override /engines: sr3_diffusion_trainer
+  - override /mode: default
+  - override /loggers: tensorboard
+  - override /model: sr3_diffusion/unet_attention_supernet
+
+device: "cuda"
+
+name: sr3_diffusion/unet_supernet_test
+seed: 12345
+
+# increase logging frequency
+loggers:
+  tensorboard:
+    handlers:
+      train_output:
+        log_handler:
+          # log temperature state attribute
+          state_attributes: ['temperature']
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      validation_output:
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+  
+# reduce model size
+model:
+  channel_multipliers: [1, 2, 4, 8]
+
+# reduce data loading and dataset size
+datamodule:
+  batch_size_train: 1
+  batch_size_test: 1
+  batch_size_validation: 1
+  subset: "unknown_x2"
+  patch_size: 128
+  train_split: train[:5]
+  test_split: validation[:5]
+  validation_split: validation[6:10]
+  lr_upscaling: bicubic
+  in_memory: False
+
+# reduce epochs and variance schedule
+# increase validation frequency
+engines:
+  trainer:
+    engine:
+      max_epochs: 5
+      beta_variance_schedule:
+        steps: 20
+      optimizer:
+        _target_: torch.optim.Adam
+        lr: 3e-6
+        _args_:
+          - ${eval:"di['model'].supernet_parameters()"}
+    handlers:
+      # validation trigger
+      train_validator:
+        event:
+        - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 1
+      # supernet trigger
+      train_supernet:
+        handler: ${eval:"lambda:di['engines.supernet_trainer'].run()"}
+        event:
+        - _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      # update temperature
+      temperature_fn:
+        handler:
+          _target_: src.handlers.supernet_temperature.SupernetGlobalTemperatureUpdate
+          model: ${di:model}
+          initial_value: 20.0
+          update_fn:
+            _target_: src.handlers.supernet_temperature.update_wrapper
+            _args_:
+              - _target_: src.handlers.supernet_temperature.create_tanh_decay
+                max: 20.0
+                min: 0.1
+                width: 20
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      # log subnet measurement metrics
+      subnet_metrics:
+        handler:
+          _target_: src.handlers.subnet_measurement.SubnetMeasurement
+          model: ${di:model}
+          metric_to_state_names:
+            flops: "subnet/flops"
+            latency: "subnet/latency"
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+      # log train images
+      log_images:
+        kwargs:
+          trigger_event:
+            _target_: ignite.engine.events.Events.EPOCH_STARTED
+            every: 2
+  supernet_trainer:
+    run_engine: False
+    engine:
+      _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
+      max_epochs: ${engines.trainer.engine.max_epochs}
+      # train supernet params on validation data
+      data: ${di:datamodule_validation_loader}
+      denoise_model: ${di:model}
+      optimizer:
+        _target_: torch.optim.Adam
+        lr: 3e-6
+        _args_:
+          - ${eval:"di['model'].architecture_parameters()"}
+      conditional: True
+      beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
+      loss_fn:
+        _target_: torch.nn.L1Loss
+        reduction: mean
+    handlers:
+      # run for only 1 iteration, then pause
+      one_epoch:
+        handler: ${eval:"lambda e:e.terminate()"}
+        event:
+          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+          every: 1
+        kwargs:
+          e: ${di:engines.supernet_trainer}
+  validator:
+    engine:
+      _target_: src.engines.sr3_diffusion.SubnetSR3DiffusionInferenceEngine
+      max_epochs: 5
+      steps_to_record: [19, 14, 9, 0]
+      beta_variance_schedule:
+        steps: 20
+    handlers:
+      log_images:
+        handler:
+          metric_names: [19, 14, 9, 0, 'lr', 'hr']
+  tester:
+    engine:
+      _target_: src.engines.sr3_diffusion.SubnetSR3DiffusionInferenceEngine
+      max_epochs: 1
+      steps_to_record: [19, 14, 9, 0]
+      beta_variance_schedule:
+        steps: 20
+    handlers:
+      log_images:
+        handler:
+          metric_names: [19, 14, 9, 0, 'lr', 'hr']

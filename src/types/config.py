@@ -24,7 +24,7 @@ class IgniteLoggerHandler:
 @dataclass
 class IgniteLogger:
     logger: Any
-    handlers: Dict[str, IgniteLoggerHandler]
+    handlers: Optional[Dict[str, IgniteLoggerHandler]]
 
 
 @dataclass
@@ -64,8 +64,6 @@ class IgniteEngine:
     handlers: Optional[Dict[str, Any]]
     # to run
     run_engine: bool
-    # max epochs for this engine
-    max_epochs: int
 
 
 @dataclass

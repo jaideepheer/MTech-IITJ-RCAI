@@ -42,8 +42,8 @@ class _LazyGroupNormProxy:
             with torch.no_grad():
                 self.weight.materialize(input[-3])
 
-class LazyGroupNorm(nn.modules.lazy.LazyModuleMixin, nn.Module):
 
+class LazyGroupNorm(nn.modules.lazy.LazyModuleMixin, nn.Module):
     def __init__(
         self,
         num_groups: int,
@@ -61,9 +61,9 @@ class LazyGroupNorm(nn.modules.lazy.LazyModuleMixin, nn.Module):
             self.weight = nn.parameter.UninitializedParameter(**factory_kwargs)
             self.bias = nn.parameter.UninitializedParameter(**factory_kwargs)
         else:
-            self.register_parameter('weight', None)
-            self.register_parameter('bias', None)
-    
+            self.register_parameter("weight", None)
+            self.register_parameter("bias", None)
+
     def initialize_parameters(self, input) -> None:  # type: ignore[override]
         if self.has_uninitialized_params():
             with torch.no_grad():
@@ -80,6 +80,4 @@ class LazyGroupNorm(nn.modules.lazy.LazyModuleMixin, nn.Module):
         return F.group_norm(input, self.num_groups, self.weight, self.bias, self.eps)
 
     def extra_repr(self) -> str:
-        return "{num_groups}, {num_channels}, eps={eps}, " "affine={affine}".format(
-            **self.__dict__
-        )
+        return "{num_groups}, eps={eps}, " "affine={affine}".format(**self.__dict__)

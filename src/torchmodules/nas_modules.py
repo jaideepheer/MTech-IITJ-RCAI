@@ -1,27 +1,25 @@
 from contextlib import contextmanager
 from itertools import chain
 import logging
-from typing import Any, Callable, Dict, List, Union, Literal, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Union, Literal, Tuple
 import torch
 import torch.nn as nn
 import torch.fx as fx
 from collections import Counter
 from deprecated import deprecated
-from src.models.torch_modules.structures import MeasurableSequential
+from src.torchmodules.structures import MeasurableSequential
 import src.utils.provider as P
-from frozendict import frozendict
 from boltons.iterutils import first
 from botorch.utils.torch import BufferDict
 import opt_einsum as oe
 
-from src.models.torch_modules.mixins import (
+from src.torchmodules.mixins import (
     BasicMeasurableMixin,
     BasicMeasurableWrapper,
     ModelBuilderMixin,
 )
-from src.utils.utils import get_logger
 
-LOG = get_logger(__name__)
+LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
 
 
@@ -72,6 +70,8 @@ class MultiOperation(BasicMeasurableMixin, nn.Module):
                 scaling = [1] * len(operations)
         # assert shapes
         assert len(operations) == len(scaling)
+        # wrap operations
+        operations = [BasicMeasurableWrapper.wrap_module(x) for x in operations]
         self.operations = nn.ModuleList(operations)
         self.scaling_activation = scaling_activation
         # select forward function
@@ -152,7 +152,7 @@ class MultiOperation(BasicMeasurableMixin, nn.Module):
         return rt
 
     def forward_measurements(
-        self, measurements: frozendict[str, torch.Tensor]
+        self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         """
         `forward_measurements` is treated specially since each measurement is scaled using `self.scaling`.
@@ -207,7 +207,7 @@ class LazyLearnableScalerTrackerMixin(ModelBuilderMixin):
         self.LazyLearnableScalers = nn.ModuleDict(scalers)
 
 
-class MultiOperationTrackerMixin(ModelBuilderMixin):
+class MultiOperationTrackerMixin(nn.Module):
     def __init__(self, *_, **kwargs):
         super().__init__(*_, **kwargs)
         self._TrackedMultiOperationModules: nn.ModuleDict[
@@ -215,7 +215,7 @@ class MultiOperationTrackerMixin(ModelBuilderMixin):
         ] = nn.ModuleDict(
             {
                 k.replace(".", "/"): v
-                for k, v in self.module.named_modules()
+                for k, v in self.named_modules()
                 if (v._get_name() == "MultiOperation") or isinstance(v, MultiOperation)
             }
         )
@@ -243,6 +243,14 @@ class SupernetMixin(MultiOperationTrackerMixin):
         self.subnet_mask_fn = subnet_mask_fn or self.default_subnet_mask_fn
         self.__subnet_mask_counter = 0
 
+    def supernet_parameters(self) -> Iterator[nn.parameter.Parameter]:
+        all = list(self.named_parameters())
+        arch = list(self._TrackedMultiOperationModules.named_parameters())
+        return list(zip(*list(filter(lambda x: not (x in arch), all))))[1]
+
+    def architecture_parameters(self) -> Iterator[nn.parameter.Parameter]:
+        return self._TrackedMultiOperationModules.parameters()
+
     @property
     def is_subnet_masked(self):
         return self.__subnet_mask_counter > 0
@@ -255,7 +263,9 @@ class SupernetMixin(MultiOperationTrackerMixin):
         with torch.no_grad():
             operations: Dict[str, MultiOperation] = self._TrackedMultiOperationModules
             # backup masks
-            backup = {k: v.operation_mask.clone().detach() for k, v in operations.items()}
+            backup = {
+                k: v.operation_mask.clone().detach() for k, v in operations.items()
+            }
             # update masks
             self.subnet_mask_fn(operations)
             self.__subnet_mask_counter += 1
@@ -273,15 +283,13 @@ class SupernetMixin(MultiOperationTrackerMixin):
             op.operation_mask.fill_(False)
             op.operation_mask[finalIdx] = True
 
-    @property
     def current_subnet(self) -> fx.graph_module.GraphModule:
         """
         Returns a `fx.GraphModule` traced with the subnet masks applied.
         This module can then be used to store the subnet since it only references the subnet's parameters.
         """
         with self.subnet_masked():
-            subnet = fx.symbolic_trace(self.module)
-            subnet.load_state_dict(self.module.state_dict())
+            subnet = fx.symbolic_trace(self)
             return subnet
 
 

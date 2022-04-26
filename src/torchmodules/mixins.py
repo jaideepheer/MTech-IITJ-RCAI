@@ -1,14 +1,56 @@
+from itertools import chain
 import logging
-from typing import Any, Callable, Dict, Literal, Set, Tuple, Union
+from typing import Callable, Dict, Literal, Set, Tuple, Union
 from boltons.iterutils import first
 import torch
 import torch.nn as nn
 from botorch.utils.torch import BufferDict
-from deepspeed.profiling.flops_profiler import FlopsProfiler
+from deepspeed.profiling.flops_profiler.profiler import (
+    FlopsProfiler,
+    wrapFunc,
+    _einsum_flops_compute,
+)
+import deepspeed.profiling.flops_profiler.profiler as profiler
 from morecontext import attrset
 
 LOG = logging.getLogger(__name__)
 LOG.setLevel(logging.INFO)
+
+# ================================================
+# Bugfix opt_einsum and deepspeed compatability
+# ================================================
+_original_einsum = torch.einsum
+
+
+def _fix_eignsum(equation, *operands):
+    if len(operands) > 0 and isinstance(operands[0], tuple):
+        operands = operands[0]
+    return _einsum_flops_compute(equation, *operands)
+
+
+def _fix_patch_methods(original):
+    def _f():
+        global _original_einsum
+        _original_einsum = torch.einsum
+        original()
+        torch.einsum = wrapFunc(_original_einsum, _fix_eignsum)
+
+    return _f
+
+
+def _fix_reload_methods(original):
+    def _f():
+        global _original_einsum
+        original()
+        torch.einsum = _original_einsum
+
+    return _f
+
+
+profiler._patch_tensor_methods = _fix_patch_methods(profiler._patch_tensor_methods)
+profiler._reload_tensor_methods = _fix_reload_methods(profiler._reload_tensor_methods)
+
+# ================================================
 
 
 class ModelBuilderMixin(nn.Module):
@@ -36,7 +78,7 @@ class ModelBuilderMixin(nn.Module):
             Raised if none of or both `module_builder` and/or `module` are provided.
         """
         if not ((module is None) ^ (module_builder is None)):
-            raise Exception("Exactly one of model or model_builder must be passed.")
+            raise Exception("Exactly one of module or module_builder must be passed.")
         # init. everything before making model
         super().__init__(*_, **kwargs)
         # make model
@@ -56,6 +98,7 @@ class ShapeRecorderMixin(nn.Module):
         self.clear_shape_recording()
         self._recorded_input_shapes = None
         self._recorded_output_shapes = None
+        self._recorded_kwargs_shapes = None
 
     def _shape_recorder_forward(self, module, inputs, outputs):
         # remove hook
@@ -88,6 +131,14 @@ class ShapeRecorderMixin(nn.Module):
             )
         return self._recorded_input_shapes
 
+    def kwarg_shapes(self):
+        if self._recorded_kwargs_shapes is None:
+            return {}
+        return self._recorded_kwargs_shapes
+
+    def set_kwarg_shapes(self, **kwargs):
+        self._recorded_kwargs_shapes = kwargs
+
     def output_shapes(self) -> Tuple[Tuple, ...]:
         """
         Returns a tuple of shapes for each non-kwarg output tensor.
@@ -117,6 +168,7 @@ class ShapeRecorderMixin(nn.Module):
         )
         self._recorded_input_shapes = None
         self._recorded_output_shapes = None
+        self._recorded_kwargs_shapes = None
 
 
 class MeasurableModuleMixin(nn.Module):
@@ -178,7 +230,9 @@ class MeasurableModuleMixin(nn.Module):
         Exception
             If no measurement for a requested metric is available.
         """
-        LOG.debug(f"get_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}")
+        LOG.debug(
+            f"get_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}"
+        )
         # lower case metrics
         metrics = [x.lower() for x in metrics]
         # filter cached metrics
@@ -227,7 +281,9 @@ class MeasurableModuleMixin(nn.Module):
         Dict[str, torch.Tensor]
             A new dict of combined measurements.
         """
-        LOG.debug(f"default forward_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}")
+        LOG.debug(
+            f"default forward_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}"
+        )
         metrics = self.get_measurements(set(measurements.keys()))
         return {k: (metrics[k] + measurements[k]) for k in metrics.keys()}
 
@@ -245,18 +301,27 @@ class BasicMeasurableMixin(ShapeRecorderMixin, MeasurableModuleMixin):
             # remove currently calc. metrics
             metrics.difference_update(ops)
             # create ip args
-            device = first(map(lambda x: x.device, self.parameters()))
-            dtype = first(map(lambda x: x.dtype, self.parameters()))
+            device = first(
+                map(lambda x: x.device, chain(self.buffers(), self.parameters()))
+            )
+            dtype = first(
+                map(lambda x: x.dtype, chain(self.buffers(), self.parameters()))
+            )
             args = [
-                torch.zeros(x, device=device, dtype=dtype)
-                for x in self.input_shapes()
+                torch.zeros(x, device=device, dtype=dtype) for x in self.input_shapes()
             ]
+            kwargs = {
+                k: torch.zeros(x, device=device, dtype=dtype)
+                for k, x in self.kwarg_shapes().items()
+            }
             # profile
             with torch.no_grad(), attrset(self, "train", False):
                 profiler = FlopsProfiler(self)
-                LOG.debug(f"Starting profile: name={getattr(self, 'model_name', None)}, cls={self.__class__}")
+                LOG.debug(
+                    f"Starting profile: name={getattr(self, 'model_name', None)}, cls={self.__class__}"
+                )
                 profiler.start_profile()
-                self(*args)
+                self(*args, **kwargs)
                 # calculate metrics
                 flops = profiler.get_total_flops()
                 macs = profiler.get_total_macs()
@@ -269,7 +334,9 @@ class BasicMeasurableMixin(ShapeRecorderMixin, MeasurableModuleMixin):
                     "params": params,
                     "latency": latency,
                 }
-                LOG.debug(f"Profile done: name={getattr(self, 'model_name', None)}, cls={self.__class__}, metrics={mt}")
+                LOG.debug(
+                    f"Profile done: name={getattr(self, 'model_name', None)}, cls={self.__class__}, metrics={mt}"
+                )
             rt.update(mt)
         # pass other metrics to super
         rt.update(super()._run_measurement(metrics))

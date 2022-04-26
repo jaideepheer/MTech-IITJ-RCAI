@@ -1,0 +1,35 @@
+wandb:
+  logger:
+    _target_: ignite.contrib.handlers.wandb_logger.WandBLogger
+    sync_tensorboard: True
+    entity: rcai
+    project: diffusion-sr
+    tags: ['sr3_diffusion', 'ignite']
+  # handlers:
+  #   train_output:
+  #     engines: ['trainer']
+  #     log_handler:
+  #       _target_: ignite.contrib.handlers.wandb_logger.OutputHandler
+  #       tag: train
+  #       metric_names: all
+  #     event:
+  #       _target_: ignite.engine.events.Events.ITERATION_COMPLETED
+  #       every: 50
+  #   validation_output:
+  #     engines: ['validator']
+  #     log_handler:
+  #       _target_: ignite.contrib.handlers.wandb_logger.OutputHandler
+  #       tag: validation
+  #       metric_names: all
+  #     event:
+  #       _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+  #       every: 1
+  #   test_output:
+  #     engines: ['tester']
+  #     log_handler:
+  #       _target_: ignite.contrib.handlers.wandb_logger.OutputHandler
+  #       tag: test
+  #       metric_names: all
+  #     event:
+  #       _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+  #       every: 1

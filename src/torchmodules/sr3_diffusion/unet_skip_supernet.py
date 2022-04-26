@@ -46,7 +46,7 @@ def _makeSupernetConv(
             scaling=Provider.get("scaling", None),
             scaling_activation=Provider.get(
                 "scaling_activation",
-                default_factory=lambda: GumbelSoftmax(tau=10.0, dim=0),
+                default_factory=lambda: GumbelSoftmax(temperature=10.0, dim=0),
             ),
             is_scaling_learnable=True,
             execution_mode="jit",

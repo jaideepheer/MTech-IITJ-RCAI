@@ -4,10 +4,31 @@ tensorboard:
     log_dir: ./tb_logs
   handlers:
     train_output:
+      engines: ['trainer']
       log_handler:
         _target_: ignite.contrib.handlers.tensorboard_logger.OutputHandler
         tag: train
         metric_names: all
+        # include all return keys with 'loss' in them
+        output_transform: ${eval:"lambda o:{k:v for k,v in o.items() if 'loss' in k}"}
       event:
         _target_: ignite.engine.events.Events.ITERATION_COMPLETED
         every: 50
+    validation_output:
+      engines: ['validator']
+      log_handler:
+        _target_: ignite.contrib.handlers.tensorboard_logger.OutputHandler
+        tag: validation
+        metric_names: all
+      event:
+        _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+        every: 1
+    test_output:
+      engines: ['tester']
+      log_handler:
+        _target_: ignite.contrib.handlers.tensorboard_logger.OutputHandler
+        tag: test
+        metric_names: all
+      event:
+        _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+        every: 1

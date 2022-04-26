@@ -69,7 +69,7 @@ class MeasurableSequential(BasicMeasurableMixin, nn.Sequential):
     def forward_measurements(
         self, measurements: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
-        rt = Dict(measurements)
+        rt = measurements
         for m in self.seqmodules:
             rt = m.forward_measurements(rt)
         return rt
