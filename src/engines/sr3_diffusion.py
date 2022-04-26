@@ -56,7 +56,7 @@ class SR3DiffusionTrainingEngine(EngineInterface):
         metric_loss_weights: Dict[str, float]
             A dict specifying which metric to add to loss after how much scaling.
         """
-        self.metric_loss_weights = metric_loss_weights
+        self.metric_loss_weights = metric_loss_weights or {}
         self.denoise_model = denoise_model
         self.optimizer = optimizer
         self.loss_fn = loss_fn

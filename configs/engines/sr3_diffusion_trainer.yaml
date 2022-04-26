@@ -27,6 +27,20 @@ trainer:
       _target_: torch.nn.L1Loss
       reduction: mean
   handlers:
+    # model checkpoint
+    checkpoint:
+      handler:
+        _target_: ignite.handlers.checkpoint.ModelCheckpoint
+        dirname: ckpt
+        filename_prefix: train_loss
+        score_function: ${eval:"lambda e:-e.state.output['loss']"}
+        n_saved: 1
+        create_dir: True
+      args:
+        - model: ${eval:"di['model']"}
+      event:
+        _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+        every: 1
     # run validation engine
     train_validator:
       handler: ${eval:"lambda:di['engines.validator'].run()"}
@@ -70,6 +84,12 @@ validator:
       end: 1e-2
       steps: 2_000
   handlers:
+    # disable logging
+    warn_only_log:
+      handler: ${eval:"lambda e:e.logger.setLevel(30)"}
+      event:
+        _target_: ignite.engine.events.Events.STARTED
+        every: 1
     # validate for only 1 epoch, then pause
     one_epoch:
       handler: ${eval:"lambda e:e.terminate()"}
@@ -89,4 +109,17 @@ validator:
       kwargs:
         logger: ${di:"loggers.tensorboard"}
         global_step_engine: ${di:"engines.trainer"}
-
+    # model checkpoint
+    checkpoint:
+      handler:
+        _target_: ignite.handlers.checkpoint.ModelCheckpoint
+        dirname: ckpt
+        filename_prefix: valid_fid
+        score_function: ${eval:"lambda e:-e.state.metrics['fid']"}
+        n_saved: 1
+        create_dir: True
+      args:
+        - model: ${eval:"di['model']"}
+      event:
+        _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+        every: 1

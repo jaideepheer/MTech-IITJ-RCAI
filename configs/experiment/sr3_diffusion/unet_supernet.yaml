@@ -13,7 +13,7 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention_supernet
 
-device: "cuda:13"
+device: "cuda:11"
 
 name: sr3_diffusion/unet_supernet_test
 seed: 12345
@@ -45,6 +45,9 @@ engines:
   trainer:
     engine:
       max_epochs: 2_000
+      metric_loss_weights:
+        flops: 1e-15
+        latency: 1e-3
       beta_variance_schedule:
         _target_: torch.linspace
         start: 1e-6
@@ -86,7 +89,7 @@ engines:
               - _target_: src.handlers.supernet_temperature.create_tanh_decay
                 max: 20.0
                 min: 0.1
-                width: 2_000
+                width: 100_000
         event:
           _target_: ignite.engine.events.Events.ITERATION_COMPLETED
           every: 1
@@ -141,6 +144,12 @@ engines:
         _target_: torch.nn.L1Loss
         reduction: mean
     handlers:
+      # disable logging
+      warn_only_log:
+        handler: ${eval:"lambda e:e.logger.setLevel(30)"}
+        event:
+          _target_: ignite.engine.events.Events.STARTED
+          every: 1
       # run for only 1 iteration, then pause
       one_epoch:
         handler: ${eval:"lambda e:e.terminate()"}
@@ -159,6 +168,12 @@ engines:
       steps_to_record: [1999, 1500, 1000, 500, 0]
       beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
     handlers:
+      # disable logging
+      warn_only_log:
+        handler: ${eval:"lambda e:e.logger.setLevel(30)"}
+        event:
+          _target_: ignite.engine.events.Events.STARTED
+          every: 1
       # validate for only 1 epoch, then pause
       one_epoch:
         handler: ${eval:"lambda e:e.terminate()"}

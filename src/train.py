@@ -99,10 +99,11 @@ def train(config: TrainConfig) -> Optional[float]:
                     e |= try_instantiate(v)
                 event = e
             kwargs = try_instantiate(hd["kwargs"]) if "kwargs" in hd else {}
+            args = try_instantiate(hd["args"]) if "args" in hd else []
             if hasattr(handler, "attach"):
                 handler.attach(eg.engine, **kwargs)
             else:
-                eg.engine.add_event_handler(event, handler, **kwargs)
+                eg.engine.add_event_handler(event, handler, *args, **kwargs)
 
     # Instantiate logger handlers
     for name, lg in config.loggers.items():

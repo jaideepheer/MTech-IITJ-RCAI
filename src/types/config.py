@@ -54,6 +54,7 @@ class IgniteHandler:
     handler: Callable
     event: Optional[Any]
     kwargs: Optional[Any]
+    args: Optional[List[Any]]
 
 
 @dataclass
