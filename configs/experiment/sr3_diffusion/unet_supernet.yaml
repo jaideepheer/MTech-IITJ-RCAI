@@ -13,7 +13,7 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention_supernet
 
-device: "cuda:11"
+device: "cuda:4"
 
 name: sr3_diffusion/unet_supernet
 seed: 12345
@@ -21,6 +21,10 @@ seed: 12345
 loggers:
   tensorboard:
     handlers:
+      train_output:
+        log_handler:
+          # log temperature state attribute
+          state_attributes: ['temperature']
       arch_output:
         engines: ['arch_trainer']
         log_handler:
