@@ -18,6 +18,7 @@ class ModelWeightHandler:
         if hasattr(m, "weight"):
             cls_name = m.__class__.__name__
             if "Conv" in cls_name:
+                m: nn.modules.conv._ConvNd
                 nn.init.orthogonal_(m.weight.data, gain=1)
                 if m.bias is not None:
                     m.bias.data.zero_()

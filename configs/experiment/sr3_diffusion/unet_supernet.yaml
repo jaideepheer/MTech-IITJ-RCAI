@@ -13,7 +13,7 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention_supernet
 
-device: "cuda:4"
+device: "cuda:6"
 
 name: sr3_diffusion/unet_supernet
 seed: 12345
@@ -41,9 +41,9 @@ loggers:
 
 # reduce data loading and dataset size
 datamodule:
-  batch_size_train: 16
-  batch_size_test: 16
-  batch_size_validation: 16
+  batch_size_train: 8
+  batch_size_test: 8
+  batch_size_validation: 8
   subset: "unknown_x2"
   patch_size: 128
   train_split: train
@@ -57,7 +57,7 @@ datamodule:
 engines:
   trainer:
     engine:
-      max_epochs: 2_000
+      max_epochs: 400
       # don't add flops for trainning supernet, instead add it for arch. params
       metric_loss_weights: null
       beta_variance_schedule:
@@ -80,9 +80,9 @@ engines:
         handler: ${eval:"lambda:di['engines.validator'].run()"}
         event:
         - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-          every: 250
-        - _target_: ignite.engine.events.Events.COMPLETED
-          every: 1
+          every: 100
+        # - _target_: ignite.engine.events.Events.COMPLETED
+        #   every: 1
       # supernet trigger
       train_supernet:
         handler: ${eval:"lambda:di['engines.arch_trainer'].run()"}
@@ -100,8 +100,8 @@ engines:
             _args_:
               - _target_: src.handlers.supernet_temperature.create_tanh_decay
                 max: 20.0
-                min: 0.1
-                width: 100_000
+                min: 0.08
+                width: 40_000
         event:
           _target_: ignite.engine.events.Events.ITERATION_COMPLETED
           every: 1
@@ -121,8 +121,8 @@ engines:
             flops: "subnet/flops"
             latency: "subnet/latency"
         event:
-          _target_: ignite.engine.events.Events.ITERATION_COMPLETED
-          every: 50
+          _target_: ignite.engine.events.Events.EPOCH_COMPLETED
+          every: 1
       # log train images
       log_images:
         handler:
@@ -135,7 +135,7 @@ engines:
           logger: ${di:"loggers.tensorboard"}
           trigger_event:
             _target_: ignite.engine.events.Events.EPOCH_STARTED
-            every: 250
+            every: 100
   # supernet engine
   arch_trainer:
     run_engine: False
@@ -144,14 +144,14 @@ engines:
       max_epochs: ${engines.trainer.engine.max_epochs}
       # metric weights make metrics in ~0.1 scale
       metric_loss_weights:
-        flops: 5e-16
+        flops: 5e-17
         latency: 5e-5
       # train supernet params on validation data
       data: ${di:datamodule_validation_loader}
       denoise_model: ${di:model}
       optimizer:
         _target_: torch.optim.Adam
-        lr: 3e-6
+        lr: 3e-5
         _args_:
           - ${eval:"di['model'].architecture_parameters()"}
       conditional: True
@@ -188,7 +188,7 @@ engines:
       max_epochs: ${engines.trainer.engine.max_epochs}
       data: ${di:datamodule_validation_loader}
       denoise_model: ${di:model}
-      steps_to_record: [1999, 1500, 1000, 500, 0]
+      steps_to_record: [399, 200, 100, 0]
       beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
     handlers:
       # disable logging
@@ -210,7 +210,7 @@ engines:
         handler:
           _target_: src.handlers.log_output_images.LogOutputImages
           tag: validation_images
-          metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+          metric_names: [399, 200, 100, 0, 'lr', 'hr']
           n_images: 4
           orientation: vertical
         kwargs:
@@ -219,7 +219,7 @@ engines:
     engine:
       _target_: src.engines.sr3_diffusion.SubnetSR3DiffusionInferenceEngine
       max_epochs: 1
-      steps_to_record: [1999, 1500, 1000, 500, 0]
+      steps_to_record: [399, 200, 100, 0]
       beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
     handlers:
       # add handler to log validation images
@@ -227,7 +227,7 @@ engines:
         handler:
           _target_: src.handlers.log_output_images.LogOutputImages
           tag: test_images
-          metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+          metric_names: [399, 200, 100, 0, 'lr', 'hr']
           n_images: 4
           orientation: vertical
         kwargs:

@@ -9,7 +9,7 @@ trainer:
   run_engine: True
   engine:
     _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
-    max_epochs: 2_000
+    max_epochs: 400
     data: ${di:datamodule_train_loader}
     denoise_model: ${di:model}
     optimizer:
@@ -46,9 +46,9 @@ trainer:
       handler: ${eval:"lambda:di['engines.validator'].run()"}
       event:
         - _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-          every: 250
-        - _target_: ignite.engine.events.Events.COMPLETED
-          every: 1
+          every: 100
+        # - _target_: ignite.engine.events.Events.COMPLETED
+        #   every: 1
     # init. model weights
     weight_init:
       handler:
@@ -68,7 +68,7 @@ trainer:
         logger: ${di:"loggers.tensorboard"}
         trigger_event:
           _target_: ignite.engine.events.Events.EPOCH_STARTED
-          every: 250
+          every: 100
 validator:
   run_engine: False
   engine:
@@ -77,7 +77,7 @@ validator:
     data: ${di:datamodule_train_loader}
     denoise_model: ${di:model}
     conditional: True
-    steps_to_record: [1999, 1500, 1000, 500, 0]
+    steps_to_record: [399, 200, 100, 0]
     beta_variance_schedule:
       _target_: torch.linspace
       start: 1e-6
@@ -103,7 +103,7 @@ validator:
       handler:
         _target_: src.handlers.log_output_images.LogOutputImages
         tag: validation_images
-        metric_names: [1999, 1500, 1000, 500, 0, 'lr', 'hr']
+        metric_names: [399, 200, 100, 0, 'lr', 'hr']
         n_images: 4
         orientation: vertical
       kwargs:

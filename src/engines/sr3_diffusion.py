@@ -238,7 +238,7 @@ class SR3DiffusionTrainingEngine(EngineInterface):
             noisy=y_noisy, gamma_noise_level=gamma_samples, condition=x
         )
         # calc loss and back step
-        loss: torch.Tensor = self.loss_fn(eps_noise, noise_pred)
+        loss: torch.Tensor = self.loss_fn(noise_pred, eps_noise)
         # add metric values to loss
         rt = {}
         if len(self.metric_loss_weights) > 0:

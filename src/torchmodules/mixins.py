@@ -180,16 +180,17 @@ class MeasurableModuleMixin(nn.Module):
         Use the `clear` measurement method to clear some/all measurements.
         """
         super().__init__(*_, **kwargs)
-        self.__measurements_cache = BufferDict()
+        self._measurements_cache = BufferDict()
 
     def clear(self, metrics: Union[Literal["all"], Set[str]]):
         if metrics == "all":
-            self.__measurements_cache.clear()
+            self._measurements_cache.clear()
         else:
             for k in metrics:
-                if k in self.__measurements_cache:
-                    del self.__measurements_cache[k]
+                if k in self._measurements_cache:
+                    del self._measurements_cache[k]
 
+    @torch.no_grad()
     def _run_measurement(self, metrics: Set[str]) -> Dict[str, torch.Tensor]:
         """
         Override this function to add support of further measurements.
@@ -210,7 +211,9 @@ class MeasurableModuleMixin(nn.Module):
         """
         return {}
 
-    def get_measurements(self, metrics: Set[str]) -> Dict[str, torch.Tensor]:
+    def get_measurements(
+        self, metrics: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         """
         Retruns the cached measurements for the requested metrics.
         Call this method to retrieve measurements for the requested metrics.
@@ -234,33 +237,36 @@ class MeasurableModuleMixin(nn.Module):
             f"get_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}"
         )
         # lower case metrics
-        metrics = [x.lower() for x in metrics]
+        metrics = {x.lower(): v for x, v in metrics.items()}
         # filter cached metrics
-        to_measure = set([x for x in metrics if x not in self.__measurements_cache])
-        with torch.no_grad():
-            measurements = self._run_measurement(to_measure)
-            # convert measurements to tensors
-            device = first(map(lambda x: x.device, self.parameters()))
-            measurements = {
-                k: (
-                    v.to(device)
-                    if torch.torch.is_tensor(v)
-                    else torch.as_tensor(
-                        v,
-                        device=device,
+        to_measure = {
+            x: v for x, v in metrics.items() if x not in self._measurements_cache
+        }
+        if len(to_measure) > 0:
+            with torch.no_grad():
+                measurements = self._run_measurement(to_measure)
+                # convert measurements to tensors
+                device = first(map(lambda x: x.device, self.parameters()))
+                measurements = {
+                    k: (
+                        v.to(device)
+                        if torch.torch.is_tensor(v)
+                        else torch.as_tensor(
+                            v,
+                            device=device,
+                        )
                     )
+                    for k, v in measurements.items()
+                }
+                # update cached metrics
+                self._measurements_cache.update(measurements)
+            # check if all measurements available
+            if not set(to_measure.keys()).issubset(measurements.keys()):
+                raise Exception(
+                    f"Not all requested measurements could be measured, requested ({to_measure}), measured ({list(measurements.keys())})"
                 )
-                for k, v in measurements.items()
-            }
-        # check if all measurements available
-        if not to_measure.issubset(measurements.keys()):
-            raise Exception(
-                f"Not all requested measurements could be measured, requested ({to_measure}), measured ({list(measurements.keys())})"
-            )
-        # update cached metrics
-        self.__measurements_cache.update(measurements)
         # return dict of requested measurements
-        return {k: self.__measurements_cache[k] for k in metrics}
+        return {k: self._measurements_cache[k] for k in metrics}
 
     def forward_measurements(
         self, measurements: Dict[str, torch.Tensor]
@@ -284,7 +290,7 @@ class MeasurableModuleMixin(nn.Module):
         LOG.debug(
             f"default forward_measurements called: name={getattr(self, 'model_name', None)} cls={self.__class__}"
         )
-        metrics = self.get_measurements(set(measurements.keys()))
+        metrics = self.get_measurements(measurements)
         return {k: (metrics[k] + measurements[k]) for k in metrics.keys()}
 
 
@@ -293,20 +299,17 @@ class BasicMeasurableMixin(ShapeRecorderMixin, MeasurableModuleMixin):
     Adds 'flops', 'macs', 'latency' and 'params' measurements using deepspeed profiler.
     """
 
-    def _run_measurement(self, metrics: Set[str]):
+    @torch.no_grad()
+    def _run_measurement(self, metrics: Dict[str, torch.Tensor]):
         ops = {"flops", "macs", "latency", "params"}
+        # calculatable metrics
+        metrics = {k: v for k, v in metrics.items() if k in ops}
         rt = {}
         # check for unsupported metrics
-        if not metrics.isdisjoint(ops):
-            # remove currently calc. metrics
-            metrics.difference_update(ops)
+        if len(metrics) > 0:
             # create ip args
-            device = first(
-                map(lambda x: x.device, chain(self.buffers(), self.parameters()))
-            )
-            dtype = first(
-                map(lambda x: x.dtype, chain(self.buffers(), self.parameters()))
-            )
+            device = next(iter(metrics.values())).device
+            dtype = next(iter(metrics.values())).dtype
             args = [
                 torch.zeros(x, device=device, dtype=dtype) for x in self.input_shapes()
             ]
@@ -316,6 +319,16 @@ class BasicMeasurableMixin(ShapeRecorderMixin, MeasurableModuleMixin):
             }
             # profile
             with torch.no_grad(), attrset(self, "train", False):
+                # ===============================
+                # patch cuda synchronize method
+                # ===============================
+                original_sync = torch.cuda.synchronize
+
+                def _f():
+                    original_sync(device)
+
+                torch.cuda.synchronize = _f
+                # ===============================
                 profiler = FlopsProfiler(self)
                 LOG.debug(
                     f"Starting profile: name={getattr(self, 'model_name', None)}, cls={self.__class__}"
@@ -328,6 +341,11 @@ class BasicMeasurableMixin(ShapeRecorderMixin, MeasurableModuleMixin):
                 params = profiler.get_total_params()
                 latency = profiler.get_total_duration()
                 profiler.stop_profile()
+                # ===============================
+                # unpatch cuda synchronize method
+                # ===============================
+                torch.cuda.synchronize = original_sync
+                # ===============================
                 mt = {
                     "flops": flops,
                     "macs": macs,

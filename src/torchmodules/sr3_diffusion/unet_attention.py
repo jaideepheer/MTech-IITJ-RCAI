@@ -339,6 +339,10 @@ class UNetWithAttention(BasicMeasurableMixin, nn.Module):
 
 _default_conv_supernet_space = [
     {
+        "kernel_size": 1,
+        "stride": 1,
+    },
+    {
         "kernel_size": 3,
         "stride": 1,
         "padding": 1,
@@ -372,7 +376,7 @@ def _supernet_self_attention_builder(groups):
         [
             SelfAttention(norm_groups=groups),
             GroupNormConvBlock(LAZY_AUTO_CONFIG, groups=groups),
-        ],
+        ] + [BasicMeasurableWrapper.wrap_module(nn.Identity())],
         scaling=Provider.get("scaling", None),
         scaling_activation=Provider.get(
             "scaling_activation",

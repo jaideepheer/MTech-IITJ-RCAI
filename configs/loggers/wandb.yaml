@@ -7,7 +7,6 @@ wandb:
     tags: ['sr3_diffusion', 'ignite']
   handlers:
     log_files:
-      engines: ['trainer']
       log_handler:
         _target_: src.handlers.log_files_wandb.LogFilesToWandb
         files_with_policy:
@@ -16,4 +15,4 @@ wandb:
           ".hydra/*": live
       event:
         _target_: ignite.engine.events.Events.EPOCH_COMPLETED
-        once: 2
+        once: 1
