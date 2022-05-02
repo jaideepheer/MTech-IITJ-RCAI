@@ -241,7 +241,8 @@ class SupernetMixin(MultiOperationTrackerMixin):
         """
         super().__init__(*_, **kwargs)
         self.subnet_mask_fn = subnet_mask_fn or self.default_subnet_mask_fn
-        self.__subnet_mask_counter = 0
+        self._subnet_mask_counter = 0
+        self._subnet_mask_backup = []
 
     def supernet_parameters(self) -> Iterator[nn.parameter.Parameter]:
         all = list(self.named_parameters())
@@ -253,28 +254,34 @@ class SupernetMixin(MultiOperationTrackerMixin):
 
     @property
     def is_subnet_masked(self):
-        return self.__subnet_mask_counter > 0
+        return len(self._subnet_mask_backup) > 0
+
+    @torch.no_grad()
+    def apply_subnet_mask(self):
+        operations: Dict[str, MultiOperation] = self._TrackedMultiOperationModules
+        # backup masks
+        self._subnet_mask_backup.append({
+            k: v.operation_mask.clone().detach() for k, v in operations.items()
+        })
+        # update masks
+        self.subnet_mask_fn(operations)
+
+    @torch.no_grad()
+    def pop_subnet_mask(self):
+        operations: Dict[str, MultiOperation] = self._TrackedMultiOperationModules
+        # restore backup masks
+        backup = self._subnet_mask_backup.pop()
+        for k, v in operations.items():
+            v.operation_mask = backup[k]
 
     @contextmanager
     def subnet_masked(self):
         """
         Context manager that applies subnet masks and reverts to previous masks on exit.
         """
-        with torch.no_grad():
-            operations: Dict[str, MultiOperation] = self._TrackedMultiOperationModules
-            # backup masks
-            backup = {
-                k: v.operation_mask.clone().detach() for k, v in operations.items()
-            }
-            # update masks
-            self.subnet_mask_fn(operations)
-            self.__subnet_mask_counter += 1
+        self.apply_subnet_mask()
         yield
-        with torch.no_grad():
-            # restore backup masks
-            for k, v in operations.items():
-                v.operation_mask = backup[k]
-            self.__subnet_mask_counter -= 1
+        self.pop_subnet_mask()
 
     def default_subnet_mask_fn(self, operations: Dict[str, MultiOperation]):
         for path, op in operations.items():

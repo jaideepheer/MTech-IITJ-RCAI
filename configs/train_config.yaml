@@ -15,6 +15,7 @@ defaults:
   - hparams_search: null
 
 device: ???
+engine_run_order: ???
 engines: ???
 
 # engines:

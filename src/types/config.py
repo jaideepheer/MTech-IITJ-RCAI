@@ -63,8 +63,6 @@ class IgniteEngine:
     engine: Any
     # event handlers for this engine
     handlers: Optional[Dict[str, Any]]
-    # to run
-    run_engine: bool
 
 
 @dataclass
@@ -77,6 +75,8 @@ class TrainConfig(RunConfig):
     datamodule: Any
     # engines
     engines: Dict[str, IgniteEngine]
+    # engine run order
+    engine_run_order: List[str]
 
 
 cs = ConfigStore.instance()

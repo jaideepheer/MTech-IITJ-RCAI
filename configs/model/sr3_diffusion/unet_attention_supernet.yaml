@@ -3,7 +3,7 @@ out_channels: 3
 inner_channels: 64
 norm_groups: 16
 channel_multipliers: [1, 2, 4, 8, 16]
-attention_from_depth: 2
+attention_from_depth: 3
 resnet_blocks_per_unet_layer: 1
 dropout: 0.0
 conv_search_space:

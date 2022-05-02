@@ -53,6 +53,7 @@ datamodule:
 
 # reduce epochs and variance schedule
 # increase validation frequency
+engine_run_order: ['trainer', 'tester']
 engines:
   trainer:
     engine:
@@ -110,7 +111,6 @@ engines:
             _target_: ignite.engine.events.Events.EPOCH_STARTED
             every: 2
   supernet_trainer:
-    run_engine: False
     engine:
       _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
       max_epochs: ${engines.trainer.engine.max_epochs}

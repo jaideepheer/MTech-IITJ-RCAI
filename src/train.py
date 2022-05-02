@@ -1,23 +1,20 @@
 import logging
-from pathlib import Path
 from typing import Optional
 
 from hjson import OrderedDict
 from omegaconf import OmegaConf
 from src.datamodules.interface import DatamoduleInterface
-from src.engines.interface import EngineInterface
 from src.types.config import (
     IgniteEngine,
     TrainConfig,
 )
 import hydra
 from kink import di
-from ignite.engine.engine import Engine
 import torch
 import torch.nn as nn
 import tensorflow as tf
 
-from src.utils.utils import seed_everything
+from src.utils.utils import seed_everything, log_hyperparameters
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +80,7 @@ def train(config: TrainConfig) -> Optional[float]:
     for name, lg in sorted(config.loggers.items(), reverse=True):
         log.info(f"Instantiating logger <{name}>")
         logger = try_instantiate(lg.logger)
+        log_hyperparameters(config, logger)
         loggers[name] = logger
         di[f"loggers.{name}"] = logger
 
@@ -126,10 +124,9 @@ def train(config: TrainConfig) -> Optional[float]:
                         )
 
     # Run engines
-    for name, engine in engines.items():
-        if engine.run_engine:
-            log.info(f"Running engine <{name}>")
-            engine.engine.run()
+    for name in config.engine_run_order:
+        log.info(f"Running engine <{name}>")
+        engines[name].engine.run()
 
     # close all loggers
     for _, l in loggers.items():

@@ -3,7 +3,6 @@ defaults:
   - /handlers/image_metrics@handlers
   - /handlers/tqdm_progress@handlers
 
-run_engine: True
 engine:
   max_epochs: 1
   data: ${di:datamodule_test_loader}

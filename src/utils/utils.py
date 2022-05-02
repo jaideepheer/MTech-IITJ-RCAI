@@ -19,6 +19,8 @@ import sys
 import gc
 from pathlib import Path
 from tensorboard.util import tb_logging
+from ignite.contrib.handlers.base_logger import BaseLogger
+from ignite.contrib.handlers.wandb_logger import WandBLogger
 
 from src.types.config import RunConfig, RunMode
 
@@ -279,41 +281,15 @@ def print_config(
 
 def log_hyperparameters(
     config: DictConfig,
-    model: torch.nn.Module,
+    logger: BaseLogger,
 ) -> None:
-    """This method controls which parameters from Hydra config are saved by Lightning loggers.
-
-    Additionally saves:
-        - number of model parameters
+    """This method controls which parameters from Hydra config are saved by loggers.
     """
-
+    config = OmegaConf.to_container(config)
     # Log everything
-    hparams = OmegaConf.to_container(config, resolve=True)
+    if isinstance(logger, WandBLogger):
+        logger._wandb.config = config
 
-    # choose which parts of hydra config will be saved to loggers
-    # hparams["trainer"] = config["trainer"]
-    # hparams["model"] = config["model"]
-    # hparams["datamodule"] = config["datamodule"]
-    if hasattr(model, "model_name"):
-        hparams["model_name"] = model.model_name
-
-    # if "seed" in config:
-    #     hparams["seed"] = config["seed"]
-    # if "callbacks" in config:
-    #     hparams["callbacks"] = config["callbacks"]
-
-    # save number of model parameters
-    hparams["model/params/total"] = sum(p.numel() for p in model.parameters())
-    hparams["model/params/trainable"] = sum(
-        p.numel() for p in model.parameters() if p.requires_grad
-    )
-    hparams["model/params/non_trainable"] = sum(
-        p.numel() for p in model.parameters() if not p.requires_grad
-    )
-
-    # send hparams to all loggers
-    # TODO do something to log hparams
-    # trainer.logger.log_hyperparams(hparams)
 
 
 # def finish(

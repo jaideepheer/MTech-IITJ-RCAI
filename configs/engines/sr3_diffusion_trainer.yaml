@@ -4,9 +4,7 @@ defaults:
   - /handlers/default_train@trainer.handlers
   - /engines/sr3_diffusion_infer@tester
 
-
 trainer:
-  run_engine: True
   engine:
     _target_: src.engines.sr3_diffusion.SR3DiffusionTrainingEngine
     max_epochs: 400
@@ -70,7 +68,6 @@ trainer:
           _target_: ignite.engine.events.Events.EPOCH_STARTED
           every: 100
 validator:
-  run_engine: False
   engine:
     _target_: src.engines.sr3_diffusion.SR3DiffusionInferenceEngine
     max_epochs: ${engines.trainer.engine.max_epochs}

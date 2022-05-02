@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Callable
 from src.torchmodules.nas_modules import MultiOperation, MultiOperationTrackerMixin
 from ignite.engine.engine import Engine
 import numpy as np
@@ -40,6 +40,6 @@ def create_tanh_decay(max: float, min: float, width: float, alpha: float = 3.0):
     w = width / 2.0
 
     def _f(x: np.ndarray):
-        return (1.0 - np.tanh(alpha * (x - w) / w)) * h - min
+        return np.maximum((1.0 - np.tanh(alpha * (x - w) / w)) * h - min, min)
 
     return _f
