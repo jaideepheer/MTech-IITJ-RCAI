@@ -354,6 +354,11 @@ _default_conv_supernet_space = [
     },
 ]
 
+_activation_builders = {
+    "softmax": lambda: nn.Softmax(dim=0),
+    "gunbel_softmax": lambda: GumbelSoftmax(temperature=20.0, dim=0),
+}
+
 
 def _supernet_conv_builder(
     out_channels: int,
@@ -364,7 +369,7 @@ def _supernet_conv_builder(
         scaling=Provider.get("scaling", None),
         scaling_activation=Provider.get(
             "scaling_activation",
-            default_factory=lambda: GumbelSoftmax(temperature=20.0, dim=0),
+            default_factory=_activation_builders["softmax"],
         ),
         is_scaling_learnable=True,
         execution_mode="sequential",
@@ -376,11 +381,12 @@ def _supernet_self_attention_builder(groups):
         [
             SelfAttention(norm_groups=groups),
             GroupNormConvBlock(LAZY_AUTO_CONFIG, groups=groups),
-        ] + [BasicMeasurableWrapper.wrap_module(nn.Identity())],
+        ]
+        + [BasicMeasurableWrapper.wrap_module(nn.Identity())],
         scaling=Provider.get("scaling", None),
         scaling_activation=Provider.get(
             "scaling_activation",
-            default_factory=lambda: GumbelSoftmax(temperature=20.0, dim=0),
+            default_factory=_activation_builders["softmax"],
         ),
         is_scaling_learnable=True,
         execution_mode="sequential",

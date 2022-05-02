@@ -13,7 +13,7 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention_supernet
 
-device: "cuda:6"
+device: "cuda:12"
 
 name: sr3_diffusion/unet_supernet
 seed: 12345
