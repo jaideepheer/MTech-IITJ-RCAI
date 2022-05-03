@@ -369,7 +369,7 @@ def _supernet_conv_builder(
         scaling=Provider.get("scaling", None),
         scaling_activation=Provider.get(
             "scaling_activation",
-            default_factory=_activation_builders["softmax_temperature"],
+            default_factory=_activation_builders["softmax"],
         ),
         is_scaling_learnable=True,
         execution_mode="sequential",
