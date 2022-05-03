@@ -32,7 +32,13 @@ def update_wrapper(update_fn):
     return _f
 
 
-def create_tanh_decay(max: float, min: float, width: float, alpha: float = 3.0):
+def create_tanh_decay(
+    max: float,
+    min: float,
+    width: float,
+    alpha: float = 3.0,
+    rising=False,
+):
     """
     Create a tanh decay function that accepts an x-value>=0 and provides corresponding y-value between [min, max].
     """
@@ -40,6 +46,9 @@ def create_tanh_decay(max: float, min: float, width: float, alpha: float = 3.0):
     w = width / 2.0
 
     def _f(x: np.ndarray):
-        return np.maximum((1.0 - np.tanh(alpha * (x - w) / w)) * h - min, min)
+        a = 1.0 - np.tanh(alpha * (x - w) / w)
+        if rising:
+            a = 2.0 - a
+        return np.maximum(a * h - min, min)
 
     return _f

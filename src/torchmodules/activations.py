@@ -26,5 +26,5 @@ class SoftmaxTemperature(nn.Module):
         self.dim = dim
 
     def forward(self, x):
-        x = x / self.temperature
+        x = x / float(self.temperature)
         return softmax(x, dim=self.dim)

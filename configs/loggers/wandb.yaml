@@ -5,7 +5,7 @@ wandb:
     entity: rcai
     project: diffusion-sr
     tags: ['sr3_diffusion', 'ignite']
-    config: ${eval:"OmegaConf.to_container(di['config'])"}
+    # config: ${eval:"OmegaConf.to_container(di['config'])"}
   handlers:
     log_files:
       log_handler:

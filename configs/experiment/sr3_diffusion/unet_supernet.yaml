@@ -13,7 +13,7 @@ defaults:
   - override /loggers: tensorboard
   - override /model: sr3_diffusion/unet_attention_supernet
 
-device: "cuda:12"
+device: "cuda:3"
 
 name: sr3_diffusion/unet_supernet
 seed: 12345
@@ -80,8 +80,8 @@ engines:
         steps: 2_000
       conditional: True
       optimizer:
-        _target_: torch.optim.Adam
-        lr: 3e-6
+        _target_: torch.optim.RAdam
+        lr: 1e-5
         _args_:
           - ${eval:"di['model'].supernet_parameters()"}
       loss_fn:
@@ -165,7 +165,7 @@ engines:
       data: ${di:datamodule_validation_loader}
       denoise_model: ${di:model}
       optimizer:
-        _target_: torch.optim.Adam
+        _target_: torch.optim.RAdam
         lr: 3e-5
         _args_:
           - ${eval:"di['model'].architecture_parameters()"}
@@ -241,8 +241,8 @@ engines:
       beta_variance_schedule: ${engines.trainer.engine.beta_variance_schedule}
       conditional: True
       optimizer:
-        _target_: torch.optim.Adam
-        lr: 1e-6
+        _target_: torch.optim.RAdam
+        lr: 3e-5
         _args_:
           - ${eval:"di['model'].supernet_parameters()"}
       loss_fn:

@@ -3,7 +3,7 @@ import math
 from typing import Any, Dict, List
 import torch
 import torch.nn as nn
-from src.torchmodules.activations import GumbelSoftmax
+from src.torchmodules.activations import GumbelSoftmax, SoftmaxTemperature
 
 from src.torchmodules.lazy_modules import (
     LAZY_AUTO_CONFIG,
@@ -13,7 +13,6 @@ from src.torchmodules.lazy_modules import (
 from src.torchmodules.mixins import (
     BasicMeasurableMixin,
     BasicMeasurableWrapper,
-    ShapeRecorderMixin,
 )
 from src.torchmodules.nas_modules import MultiOperation, SupernetMixin
 from src.torchmodules.structures import MeasurableSequential, UNetLayer
@@ -356,6 +355,7 @@ _default_conv_supernet_space = [
 
 _activation_builders = {
     "softmax": lambda: nn.Softmax(dim=0),
+    "softmax_temperature": lambda: SoftmaxTemperature(temperature=20.0, dim=0),
     "gunbel_softmax": lambda: GumbelSoftmax(temperature=20.0, dim=0),
 }
 
@@ -369,7 +369,7 @@ def _supernet_conv_builder(
         scaling=Provider.get("scaling", None),
         scaling_activation=Provider.get(
             "scaling_activation",
-            default_factory=_activation_builders["softmax"],
+            default_factory=_activation_builders["softmax_temperature"],
         ),
         is_scaling_learnable=True,
         execution_mode="sequential",
