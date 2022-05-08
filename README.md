@@ -1,6 +1,6 @@
 # M.Tech AI Final Project
 
-> See: [Report.pdf](./Report.pdf) and [Presentation.pdf](./Presentation.pdf) for detailed information.
+> See: [Presentation.pdf](./Presentation.pdf) and [Report.pdf](./Report.pdf) for detailed information.
 
 This work is focused at performing Neural Architecture Search (NAS) on a UNet neural network (SR3) to optimize for minimal FLOPs and inference latency; while working in a denoising diffusion generative framework (DDPM).
 
